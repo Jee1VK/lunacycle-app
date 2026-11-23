@@ -45,6 +45,13 @@ import {
   parseImportedBackup,
 } from './engine/exportReport';
 import {
+  applyOtaUpdateNow,
+  checkForOtaUpdate,
+  CURRENT_APP_VERSION,
+  isRunningInsideNativeApk,
+  type OtaUpdateState,
+} from './engine/otaUpdater';
+import {
   buildPartnerSnapshot,
   createDefaultPartnerShareConfig,
   deletePartnerSnapshot,
@@ -86,6 +93,14 @@ export function App() {
   const [calendarEditInit, setCalendarEditInit] = useState(false);
   const [logDialogDate, setLogDialogDate] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [otaState, setOtaState] = useState<OtaUpdateState>(() => ({
+    currentVersion: CURRENT_APP_VERSION,
+    latestVersion: null,
+    updateAvailable: false,
+    checking: false,
+    lastCheckedAt: null,
+    isNativeApk: isRunningInsideNativeApk(),
+  }));
 
   const autoSyncTimerRef = useRef<number | null>(null);
   const today = todayPlainDate();
@@ -99,6 +114,40 @@ export function App() {
     const id = window.setTimeout(() => setToast(null), 3200);
     return () => window.clearTimeout(id);
   }, [toast]);
+
+  // Check for PWA-style Over-The-Air (OTA) live updates on startup and when returning to foreground
+  const handleCheckOtaUpdate = async (manual = false) => {
+    setOtaState((prev) => ({ ...prev, checking: true }));
+    const res = await checkForOtaUpdate();
+    setOtaState((prev) => ({
+      ...prev,
+      checking: false,
+      latestVersion: res.latestVersion ?? prev.latestVersion,
+      updateAvailable: res.updateAvailable,
+      lastCheckedAt: new Date().toISOString(),
+    }));
+    if (manual) {
+      if (res.offline) {
+        showToast('Offline — will check for live updates when back online.');
+      } else if (res.updateAvailable) {
+        showToast(`Live update ready (${res.latestVersion ?? 'new build'}). Tap Update Now.`);
+      } else {
+        showToast('You are already on the latest live version.');
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (!ready) return;
+    void handleCheckOtaUpdate(false);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        void handleCheckOtaUpdate(false);
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [ready]);
 
   // Initial load from IndexedDB private vault
   useEffect(() => {
@@ -537,6 +586,31 @@ export function App() {
       </header>
 
       <main className="app-main">
+        {otaState.updateAvailable ? (
+          <div
+            className="reminder-item reminder-item--gentle"
+            role="status"
+            style={{ alignItems: 'center', justifyContent: 'space-between', gap: 10 }}
+          >
+            <div>
+              <p className="reminder-title">
+                Live OTA update ready{otaState.latestVersion ? ` (v${otaState.latestVersion})` : ''}
+              </p>
+              <p className="reminder-body">
+                Refresh in place — your local logs stay untouched.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="btn-primary"
+              style={{ minHeight: 40, padding: '8px 14px', fontSize: '0.82rem', flexShrink: 0 }}
+              onClick={() => void applyOtaUpdateNow()}
+            >
+              Update Now
+            </button>
+          </div>
+        ) : null}
+
         {activeTab === 'today' ? (
           <TodayView
             data={data}
@@ -593,6 +667,9 @@ export function App() {
             data={data}
             pinConfig={pinConfig}
             today={today}
+            otaState={otaState}
+            onCheckOtaUpdate={() => void handleCheckOtaUpdate(true)}
+            onApplyOtaUpdate={() => void applyOtaUpdateNow()}
             onUpdateSettings={handleUpdateSettings}
             onSetPin={handleSetPin}
             onRemovePin={handleRemovePin}

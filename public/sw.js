@@ -1,4 +1,4 @@
-const CACHE_NAME = 'lunacycle-offline-v3';
+const CACHE_NAME = 'lunacycle-offline-v4';
 const CORE_ASSETS = [
   './',
   './index.html',
@@ -28,6 +28,12 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
+
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   if (request.method !== 'GET') return;
@@ -35,7 +41,30 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
-  // Stale-while-revalidate for same-origin app shell & built assets
+  // Always fetch live OTA version manifest directly from network (never stale-cache version.json)
+  if (url.pathname.endsWith('/version.json')) {
+    event.respondWith(fetch(request));
+    return;
+  }
+
+  // Network-first for HTML navigation so OTA live updates arrive immediately when online,
+  // falling back cleanly to cached app shell when offline.
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (response.ok) {
+            const copy = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put('./index.html', copy));
+          }
+          return response;
+        })
+        .catch(() => caches.match('./index.html')),
+    );
+    return;
+  }
+
+  // Stale-while-revalidate for versioned JS/CSS/icon assets
   event.respondWith(
     caches.match(request).then((cached) => {
       const fetchPromise = fetch(request)

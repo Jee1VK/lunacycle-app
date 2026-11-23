@@ -9,6 +9,9 @@ pnpm-debug.log*
 node_modules
 dist
 dist-ssr
+android
+*.apk
+*.jks
 *.local
 
 # Editor directories and files

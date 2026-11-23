@@ -6,12 +6,15 @@ import {
   FileSpreadsheet,
   FileText,
   Lock,
+  RefreshCw,
   ShieldCheck,
+  Smartphone,
   Sparkles,
   Trash2,
   Unlock,
   Upload,
 } from 'lucide-react';
+import type { OtaUpdateState } from '../engine/otaUpdater';
 import { addDays } from '../engine/temporal';
 import {
   getNotificationSupport,
@@ -24,6 +27,9 @@ interface SettingsViewProps {
   data: LunaData;
   pinConfig: PinLockConfig | null;
   today: string;
+  otaState: OtaUpdateState;
+  onCheckOtaUpdate: () => void;
+  onApplyOtaUpdate: () => void;
   onUpdateSettings: (patch: Partial<UserSettings>) => void;
   onSetPin: (pin: string) => Promise<void>;
   onRemovePin: () => Promise<void>;
@@ -40,6 +46,9 @@ export function SettingsView({
   data,
   pinConfig,
   today,
+  otaState,
+  onCheckOtaUpdate,
+  onApplyOtaUpdate,
   onUpdateSettings,
   onSetPin,
   onRemovePin,
@@ -495,6 +504,57 @@ export function SettingsView({
             <Trash2 size={16} />
             Erase All Data
           </button>
+        </div>
+      </section>
+
+      {/* App Version & Over-The-Air (OTA) Live Updates */}
+      <section className="card">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Smartphone size={18} color="var(--color-brand-primary)" />
+            <h2 className="section-title" style={{ margin: 0 }}>
+              App Version &amp; Live OTA Updates
+            </h2>
+          </div>
+          <span className="phase-badge phase-badge--follicular tabular">
+            v{otaState.currentVersion}
+          </span>
+        </div>
+        <p className="section-caption" style={{ marginBottom: 12 }}>
+          {otaState.isNativeApk
+            ? 'Running inside the native Android APK with PWA-style Over-The-Air live updates enabled.'
+            : 'Running as an installable offline-first PWA with live Over-The-Air updates.'}
+        </p>
+
+        <div className="btn-row">
+          {otaState.updateAvailable ? (
+            <button type="button" className="btn-primary" onClick={onApplyOtaUpdate}>
+              <RefreshCw size={16} />
+              Install Live Update{otaState.latestVersion ? ` (v${otaState.latestVersion})` : ''}
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="btn-secondary"
+              disabled={otaState.checking}
+              onClick={onCheckOtaUpdate}
+            >
+              <RefreshCw size={16} />
+              {otaState.checking ? 'Checking…' : 'Check for Live Update'}
+            </button>
+          )}
+          {!otaState.isNativeApk ? (
+            <a
+              href="https://github.com/Jee1VK/lunacycle-app/releases/download/latest/LunaCycle.apk"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-secondary"
+              style={{ textDecoration: 'none', flex: '1 1 140px' }}
+            >
+              <Download size={16} />
+              Download Android APK
+            </a>
+          ) : null}
         </div>
       </section>
 
