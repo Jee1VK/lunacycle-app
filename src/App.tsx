@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   BarChart3,
   BookOpen,
   Calendar,
+  HeartHandshake,
   Lock,
   Settings,
   ShieldCheck,
@@ -11,6 +12,7 @@ import {
 import { CalendarView } from './components/CalendarView';
 import { DailyLogDialog } from './components/DailyLogDialog';
 import { InsightsView } from './components/InsightsView';
+import { PartnerView } from './components/PartnerView';
 import { PinLockScreen } from './components/PinLockScreen';
 import { SettingsView } from './components/SettingsView';
 import { TodayView } from './components/TodayView';
@@ -18,9 +20,15 @@ import { buildSampleDemoData } from './engine/catalog';
 import {
   createPinConfig,
   eraseAllVaultData,
+  loadCachedPartnerSnapshotFromVault,
   loadLunaData,
+  loadPartnerShareConfigFromVault,
+  loadPartnerWatchConfigFromVault,
   loadPinConfig,
+  saveCachedPartnerSnapshotToVault,
   saveLunaData,
+  savePartnerShareConfigToVault,
+  savePartnerWatchConfigToVault,
   savePinConfig,
   verifyPin,
 } from './engine/cryptoStorage';
@@ -37,14 +45,29 @@ import {
   parseImportedBackup,
 } from './engine/exportReport';
 import {
+  buildPartnerSnapshot,
+  createDefaultPartnerShareConfig,
+  deletePartnerSnapshot,
+  fetchPartnerSnapshot,
+  pushPartnerSnapshot,
+} from './engine/partnerSync';
+import {
   computeActiveReminders,
   dispatchGentleBrowserNotification,
 } from './engine/reminders';
 import { todayPlainDate } from './engine/temporal';
-import type { DailyLog, LunaData, PinLockConfig, UserSettings } from './types';
+import type {
+  DailyLog,
+  LunaData,
+  PartnerShareConfig,
+  PartnerSnapshot,
+  PartnerWatchConfig,
+  PinLockConfig,
+  UserSettings,
+} from './types';
 import { createEmptyLog, createInitialData } from './types';
 
-type TabId = 'today' | 'calendar' | 'insights' | 'settings';
+type TabId = 'today' | 'calendar' | 'partner' | 'insights' | 'settings';
 
 export function App() {
   const [ready, setReady] = useState(false);
@@ -53,11 +76,18 @@ export function App() {
   const [activePin, setActivePin] = useState<string | undefined>(undefined);
   const [locked, setLocked] = useState(false);
 
+  const [partnerShareConfig, setPartnerShareConfig] = useState<PartnerShareConfig>(() =>
+    createDefaultPartnerShareConfig(),
+  );
+  const [partnerWatchConfig, setPartnerWatchConfig] = useState<PartnerWatchConfig | null>(null);
+  const [watchedPartnerSnapshot, setWatchedPartnerSnapshot] = useState<PartnerSnapshot | null>(null);
+
   const [activeTab, setActiveTab] = useState<TabId>('today');
   const [calendarEditInit, setCalendarEditInit] = useState(false);
   const [logDialogDate, setLogDialogDate] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
+  const autoSyncTimerRef = useRef<number | null>(null);
   const today = todayPlainDate();
 
   const showToast = (msg: string) => {
@@ -75,8 +105,18 @@ export function App() {
     let cancelled = false;
     (async () => {
       try {
-        const cfg = await loadPinConfig();
+        const [cfg, storedShare, storedWatch, storedSnap] = await Promise.all([
+          loadPinConfig(),
+          loadPartnerShareConfigFromVault(),
+          loadPartnerWatchConfigFromVault(),
+          loadCachedPartnerSnapshotFromVault(),
+        ]);
         if (cancelled) return;
+
+        if (storedShare) setPartnerShareConfig(storedShare);
+        if (storedWatch) setPartnerWatchConfig(storedWatch);
+        if (storedSnap) setWatchedPartnerSnapshot(storedSnap);
+
         if (cfg?.enabled) {
           setPinConfig(cfg);
           setLocked(true);
@@ -133,6 +173,21 @@ export function App() {
     }
   };
 
+  const handleUpdatePartnerShareConfig = (cfg: PartnerShareConfig) => {
+    setPartnerShareConfig(cfg);
+    void savePartnerShareConfigToVault(cfg);
+  };
+
+  const handleUpdatePartnerWatchConfig = (cfg: PartnerWatchConfig | null) => {
+    setPartnerWatchConfig(cfg);
+    void savePartnerWatchConfigToVault(cfg);
+  };
+
+  const handleUpdateWatchedPartnerSnapshot = (snap: PartnerSnapshot | null) => {
+    setWatchedPartnerSnapshot(snap);
+    void saveCachedPartnerSnapshotToVault(snap);
+  };
+
   const stats = useMemo(
     () => computeCycleStats(data.logs, data.settings),
     [data.logs, data.settings],
@@ -148,7 +203,101 @@ export function App() {
     [data, summary],
   );
 
-  // Dispatch gentle local notification once per day if user opted in
+  // Live Auto-Sync: push updated privacy-scoped snapshot whenever logs/settings/permissions change
+  useEffect(() => {
+    if (!ready || locked || !partnerShareConfig.enabled || !partnerShareConfig.syncServerUrl.trim()) {
+      return;
+    }
+    if (autoSyncTimerRef.current) {
+      window.clearTimeout(autoSyncTimerRef.current);
+    }
+    autoSyncTimerRef.current = window.setTimeout(() => {
+      const snap = buildPartnerSnapshot(partnerShareConfig, data, stats, summary);
+      void pushPartnerSnapshot(partnerShareConfig, snap).then((res) => {
+        if (res.ok) {
+          const updated: PartnerShareConfig = {
+            ...partnerShareConfig,
+            lastSyncedAt: new Date().toISOString(),
+          };
+          setPartnerShareConfig(updated);
+          void savePartnerShareConfigToVault(updated);
+        }
+      });
+    }, 1200);
+
+    return () => {
+      if (autoSyncTimerRef.current) {
+        window.clearTimeout(autoSyncTimerRef.current);
+      }
+    };
+  }, [
+    ready,
+    locked,
+    data,
+    stats,
+    summary,
+    partnerShareConfig.enabled,
+    partnerShareConfig.code,
+    partnerShareConfig.profileLabel,
+    partnerShareConfig.pinHash,
+    partnerShareConfig.syncServerUrl,
+    partnerShareConfig.permissions.shareFertileWindow,
+    partnerShareConfig.permissions.shareSymptomsAndMood,
+    partnerShareConfig.permissions.shareUpcomingForecast,
+  ]);
+
+  // Partner Auto-Refresh every 60s when connected to a partner
+  useEffect(() => {
+    if (!ready || locked || !partnerWatchConfig) return;
+    let cancelled = false;
+
+    const refresh = async () => {
+      const res = await fetchPartnerSnapshot(partnerWatchConfig);
+      if (cancelled || !res.snapshot) return;
+      setWatchedPartnerSnapshot(res.snapshot);
+      void saveCachedPartnerSnapshotToVault(res.snapshot);
+
+      // Gentle partner notification on this phone if enabled
+      if (partnerWatchConfig.alertsOnThisPhone && res.snapshot.mode !== 'pregnancy') {
+        const snap = res.snapshot;
+        if (snap.isPeriodActiveToday) {
+          const key = `luna_partner_alert_${today}_active`;
+          if (!sessionStorage.getItem(key)) {
+            sessionStorage.setItem(key, '1');
+            dispatchGentleBrowserNotification(
+              `${snap.profileLabel}'s period is active`,
+              'Check the Partner tab for comfort cues and support tips.',
+              data.settings.disguiseMode,
+            );
+          }
+        } else if (snap.daysUntilNextPeriod !== null && snap.daysUntilNextPeriod <= 2) {
+          const key = `luna_partner_alert_${today}_soon`;
+          if (!sessionStorage.getItem(key)) {
+            sessionStorage.setItem(key, '1');
+            dispatchGentleBrowserNotification(
+              `${snap.profileLabel}'s period expected in ${snap.daysUntilNextPeriod}d`,
+              'Great time to plan ahead and be extra supportive.',
+              data.settings.disguiseMode,
+            );
+          }
+        }
+      }
+    };
+
+    void refresh();
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        void refresh();
+      }
+    }, 60_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [ready, locked, partnerWatchConfig?.code, partnerWatchConfig?.pinHash, partnerWatchConfig?.syncServerUrl, partnerWatchConfig?.alertsOnThisPhone, today, data.settings.disguiseMode]);
+
+  // Dispatch gentle local notification once per day for own reminders
   useEffect(() => {
     if (!ready || locked || activeReminders.length === 0) return;
     const first = activeReminders[0];
@@ -298,12 +447,18 @@ export function App() {
   };
 
   const handleEraseAllData = async () => {
+    if (partnerShareConfig.enabled) {
+      await deletePartnerSnapshot(partnerShareConfig);
+    }
     await eraseAllVaultData();
     setPinConfig(null);
     setActivePin(undefined);
     setData(createInitialData());
+    setPartnerShareConfig(createDefaultPartnerShareConfig());
+    setPartnerWatchConfig(null);
+    setWatchedPartnerSnapshot(null);
     setLocked(false);
-    showToast('All local data permanently erased.');
+    showToast('All local & relay data permanently erased.');
   };
 
   if (!ready) {
@@ -345,7 +500,11 @@ export function App() {
           <div>
             <h1 className="brand-title">{disguised ? 'Daily Notes' : 'LunaCycle'}</h1>
             <p className="brand-subtitle">
-              {disguised ? 'Private offline journal' : 'Private · Offline · Zero trackers'}
+              {disguised
+                ? 'Private offline journal'
+                : partnerShareConfig.enabled
+                  ? 'On-device · Partner sync live'
+                  : 'Private · Offline · Zero trackers'}
             </p>
           </div>
         </div>
@@ -368,7 +527,7 @@ export function App() {
             <span
               className="phase-badge phase-badge--fertile"
               style={{ fontSize: '0.72rem', padding: '4px 9px' }}
-              title="All health data stays strictly on this device"
+              title="All health data stays strictly on this device unless you opt in to Partner Sync"
             >
               <ShieldCheck size={13} />
               On-device
@@ -402,6 +561,21 @@ export function App() {
             initialEditPeriodsMode={calendarEditInit}
             onTogglePeriodDate={handleTogglePeriodDate}
             onOpenLogDialog={(d) => setLogDialogDate(d)}
+          />
+        ) : null}
+
+        {activeTab === 'partner' ? (
+          <PartnerView
+            data={data}
+            stats={stats}
+            summary={summary}
+            shareConfig={partnerShareConfig}
+            onUpdateShareConfig={handleUpdatePartnerShareConfig}
+            watchConfig={partnerWatchConfig}
+            onUpdateWatchConfig={handleUpdatePartnerWatchConfig}
+            watchedSnapshot={watchedPartnerSnapshot}
+            onUpdateWatchedSnapshot={handleUpdateWatchedPartnerSnapshot}
+            onNotify={showToast}
           />
         ) : null}
 
@@ -460,6 +634,18 @@ export function App() {
         >
           <Calendar size={19} />
           <span>Calendar</span>
+        </button>
+        <button
+          type="button"
+          className="nav-tab"
+          aria-current={activeTab === 'partner' ? 'page' : undefined}
+          onClick={() => {
+            setCalendarEditInit(false);
+            setActiveTab('partner');
+          }}
+        >
+          <HeartHandshake size={19} />
+          <span>Partner</span>
         </button>
         <button
           type="button"

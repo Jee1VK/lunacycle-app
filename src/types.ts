@@ -153,6 +153,57 @@ export interface PinLockConfig {
   autoLockOnHide: boolean;
 }
 
+export interface PartnerSharePermissions {
+  shareFertileWindow: boolean;
+  shareSymptomsAndMood: boolean;
+  shareUpcomingForecast: boolean;
+}
+
+export interface PartnerShareConfig {
+  enabled: boolean;
+  code: string;
+  writeSecret: string;
+  profileLabel: string;
+  pinHash?: string;
+  syncServerUrl: string;
+  permissions: PartnerSharePermissions;
+  lastSyncedAt?: string;
+}
+
+export interface PartnerWatchConfig {
+  code: string;
+  pinHash?: string;
+  syncServerUrl: string;
+  alertsOnThisPhone: boolean;
+  lastFetchedAt?: string;
+}
+
+export interface PartnerSnapshot {
+  version: 1;
+  code: string;
+  profileLabel: string;
+  updatedAt: string;
+  asOfDate: string;
+  mode: TrackingMode;
+  phase: CyclePhase;
+  cycleDay: number | null;
+  averageCycleLength: number;
+  daysUntilNextPeriod: number | null;
+  daysLate: number;
+  nextPeriodDate: string | null;
+  isPeriodActiveToday: boolean;
+  todayFlow?: FlowLevel;
+  ovulationDate?: string | null;
+  fertileStartDate?: string | null;
+  fertileEndDate?: string | null;
+  todaySymptoms?: SymptomId[];
+  todayMoods?: MoodId[];
+  pregnancy?: PregnancySummary | null;
+  upcomingDays?: Array<{ date: string; phase: CyclePhase }>;
+  pinHash?: string;
+  writeSecret?: string;
+}
+
 export const DEFAULT_SETTINGS: UserSettings = {
   mode: 'cycle',
   defaultCycleLength: 28,

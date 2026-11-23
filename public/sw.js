@@ -1,4 +1,4 @@
-const CACHE_NAME = 'lunacycle-offline-v2';
+const CACHE_NAME = 'lunacycle-offline-v3';
 const CORE_ASSETS = [
   './',
   './index.html',

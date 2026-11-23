@@ -1,4 +1,10 @@
-import type { LunaData, PinLockConfig } from '../types';
+import type {
+  LunaData,
+  PartnerShareConfig,
+  PartnerSnapshot,
+  PartnerWatchConfig,
+  PinLockConfig,
+} from '../types';
 import { createInitialData, DEFAULT_SETTINGS } from '../types';
 
 const DB_NAME = 'lunacycle_private_db';
@@ -6,6 +12,9 @@ const DB_VERSION = 1;
 const STORE_NAME = 'vault';
 const KEY_DATA = 'luna_data';
 const KEY_PIN = 'luna_pin_config';
+const KEY_PARTNER_SHARE = 'luna_partner_share';
+const KEY_PARTNER_WATCH = 'luna_partner_watch';
+const KEY_PARTNER_SNAPSHOT = 'luna_partner_snapshot';
 
 const PBKDF2_ITERATIONS = 120_000;
 
@@ -279,4 +288,28 @@ export async function saveLunaData(data: LunaData, activePin?: string): Promise<
 
 export async function eraseAllVaultData(): Promise<void> {
   await idbClearAll();
+}
+
+export async function loadPartnerShareConfigFromVault(): Promise<PartnerShareConfig | null> {
+  return (await idbGet<PartnerShareConfig>(KEY_PARTNER_SHARE)) ?? null;
+}
+
+export async function savePartnerShareConfigToVault(cfg: PartnerShareConfig): Promise<void> {
+  await idbSet(KEY_PARTNER_SHARE, cfg);
+}
+
+export async function loadPartnerWatchConfigFromVault(): Promise<PartnerWatchConfig | null> {
+  return (await idbGet<PartnerWatchConfig | null>(KEY_PARTNER_WATCH)) ?? null;
+}
+
+export async function savePartnerWatchConfigToVault(cfg: PartnerWatchConfig | null): Promise<void> {
+  await idbSet(KEY_PARTNER_WATCH, cfg);
+}
+
+export async function loadCachedPartnerSnapshotFromVault(): Promise<PartnerSnapshot | null> {
+  return (await idbGet<PartnerSnapshot | null>(KEY_PARTNER_SNAPSHOT)) ?? null;
+}
+
+export async function saveCachedPartnerSnapshotToVault(snap: PartnerSnapshot | null): Promise<void> {
+  await idbSet(KEY_PARTNER_SNAPSHOT, snap);
 }

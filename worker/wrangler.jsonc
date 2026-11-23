@@ -1,0 +1,17 @@
+{
+  "name": "lunacycle-partner-sync",
+  "main": "partner-relay.js",
+  "compatibility_date": "2026-11-23",
+  "observability": {
+    "enabled": true,
+    "traces": {
+      "enabled": true
+    }
+  },
+  "kv_namespaces": [
+    {
+      "binding": "LUNACYCLE_SYNC",
+      "id": "ac71ebd75f86463cb7bd6a816b320f12"
+    }
+  ]
+}
