@@ -5,6 +5,7 @@ import {
   EyeOff,
   FileSpreadsheet,
   FileText,
+  Fingerprint,
   Lock,
   RefreshCw,
   ShieldCheck,
@@ -33,11 +34,14 @@ interface SettingsViewProps {
   pinConfig: PinLockConfig | null;
   today: string;
   otaState: OtaUpdateState;
+  biometricAvailable: boolean;
+  biometricLabel: string;
   onCheckOtaUpdate: () => void;
   onApplyOtaUpdate: () => void;
   onUpdateSettings: (patch: Partial<UserSettings>) => void;
   onSetPin: (pin: string) => Promise<void>;
   onRemovePin: () => Promise<void>;
+  onToggleBiometric: (enabled: boolean) => Promise<void>;
   onExportJson: (passphrase?: string) => Promise<void>;
   onImportJsonText: (fileText: string, passphrase?: string) => Promise<'ok' | 'needs_passphrase' | 'error'>;
   onImportExternalFile: (fileText: string) => void;
@@ -53,11 +57,14 @@ export function SettingsView({
   pinConfig,
   today,
   otaState,
+  biometricAvailable,
+  biometricLabel,
   onCheckOtaUpdate,
   onApplyOtaUpdate,
   onUpdateSettings,
   onSetPin,
   onRemovePin,
+  onToggleBiometric,
   onExportJson,
   onImportJsonText,
   onImportExternalFile,
@@ -496,6 +503,30 @@ export function SettingsView({
             </button>
           )}
         </div>
+
+        {biometricAvailable ? (
+          <label className="setting-row" htmlFor="biometric-switch">
+            <div className="setting-label-wrap">
+              <span className="setting-title" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <Fingerprint size={16} color="var(--color-brand-primary)" />
+                {biometricLabel} Unlock
+              </span>
+              <span className="setting-desc">
+                {pinConfig?.enabled
+                  ? 'Unlock your AES-GCM vault via Android Hardware Keystore'
+                  : 'Set a 4-digit PIN above first to enable biometric unlock'}
+              </span>
+            </div>
+            <input
+              id="biometric-switch"
+              type="checkbox"
+              disabled={!pinConfig?.enabled}
+              checked={Boolean(pinConfig?.biometricEnabled)}
+              onChange={(e) => void onToggleBiometric(e.target.checked)}
+              {...({ switch: '' } as Record<string, string>)}
+            />
+          </label>
+        ) : null}
 
         <label className="setting-row" htmlFor="disguise-switch">
           <div className="setting-label-wrap">

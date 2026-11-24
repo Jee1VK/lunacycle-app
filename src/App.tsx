@@ -16,6 +16,13 @@ import { PartnerView } from './components/PartnerView';
 import { PinLockScreen } from './components/PinLockScreen';
 import { SettingsView } from './components/SettingsView';
 import { TodayView } from './components/TodayView';
+import {
+  checkBiometricAvailability,
+  clearBiometricCredentials,
+  enableBiometricForVault,
+  unlockVaultWithBiometric,
+  type BiometricAvailability,
+} from './engine/biometricAuth';
 import { buildSampleDemoData } from './engine/catalog';
 import {
   createPinConfig,
@@ -91,6 +98,10 @@ export function App() {
   const [pinConfig, setPinConfig] = useState<PinLockConfig | null>(null);
   const [activePin, setActivePin] = useState<string | undefined>(undefined);
   const [locked, setLocked] = useState(false);
+  const [biometricInfo, setBiometricInfo] = useState<BiometricAvailability>({
+    available: false,
+    label: 'Fingerprint',
+  });
 
   const [partnerShareConfig, setPartnerShareConfig] = useState<PartnerShareConfig>(() =>
     createDefaultPartnerShareConfig(),
@@ -163,14 +174,16 @@ export function App() {
     let cancelled = false;
     (async () => {
       try {
-        const [cfg, storedShare, storedWatch, storedSnap] = await Promise.all([
+        const [cfg, storedShare, storedWatch, storedSnap, bio] = await Promise.all([
           loadPinConfig(),
           loadPartnerShareConfigFromVault(),
           loadPartnerWatchConfigFromVault(),
           loadCachedPartnerSnapshotFromVault(),
+          checkBiometricAvailability(),
         ]);
         if (cancelled) return;
 
+        setBiometricInfo(bio);
         if (storedShare) setPartnerShareConfig(storedShare);
         if (storedWatch) setPartnerWatchConfig(storedWatch);
         if (storedSnap) setWatchedPartnerSnapshot(storedSnap);
@@ -547,7 +560,38 @@ export function App() {
     showToast('PIN lock enabled & vault encrypted.');
   };
 
+  const handleBiometricUnlock = async (): Promise<boolean> => {
+    const pinFromKeystore = await unlockVaultWithBiometric(data.settings.disguiseMode);
+    if (!pinFromKeystore) return false;
+    return handleUnlock(pinFromKeystore);
+  };
+
+  const handleToggleBiometric = async (enabled: boolean) => {
+    if (!pinConfig?.enabled || !activePin) {
+      showToast('Set a 4-digit PIN first to enable biometric unlock.');
+      return;
+    }
+    if (enabled) {
+      const res = await enableBiometricForVault(activePin, data.settings.disguiseMode);
+      if (!res.ok) {
+        showToast(res.error ?? 'Could not enable biometric unlock.');
+        return;
+      }
+      const nextCfg: PinLockConfig = { ...pinConfig, biometricEnabled: true };
+      await savePinConfig(nextCfg);
+      setPinConfig(nextCfg);
+      showToast(`${biometricInfo.label} unlock enabled.`);
+    } else {
+      await clearBiometricCredentials();
+      const nextCfg: PinLockConfig = { ...pinConfig, biometricEnabled: false };
+      await savePinConfig(nextCfg);
+      setPinConfig(nextCfg);
+      showToast(`${biometricInfo.label} unlock disabled.`);
+    }
+  };
+
   const handleRemovePin = async () => {
+    await clearBiometricCredentials();
     await savePinConfig(null);
     await saveLunaData(data, undefined);
     setPinConfig(null);
@@ -596,6 +640,7 @@ export function App() {
   };
 
   const handleEraseAllData = async () => {
+    await clearBiometricCredentials();
     if (partnerShareConfig.enabled) {
       await deletePartnerSnapshot(partnerShareConfig);
     }
@@ -622,7 +667,10 @@ export function App() {
     return (
       <PinLockScreen
         disguiseMode={data.settings.disguiseMode}
+        biometricEnabled={Boolean(pinConfig?.biometricEnabled && biometricInfo.available)}
+        biometricLabel={biometricInfo.label}
         onUnlock={handleUnlock}
+        onBiometricUnlock={handleBiometricUnlock}
       />
     );
   }
@@ -773,11 +821,14 @@ export function App() {
             pinConfig={pinConfig}
             today={today}
             otaState={otaState}
+            biometricAvailable={biometricInfo.available}
+            biometricLabel={biometricInfo.label}
             onCheckOtaUpdate={() => void handleCheckOtaUpdate(true)}
             onApplyOtaUpdate={() => void applyOtaUpdateNow()}
             onUpdateSettings={handleUpdateSettings}
             onSetPin={handleSetPin}
             onRemovePin={handleRemovePin}
+            onToggleBiometric={handleToggleBiometric}
             onExportJson={async (pass) => {
               await exportJsonBackup(data, today, pass);
               showToast(pass?.trim() ? 'Encrypted backup downloaded.' : 'JSON backup downloaded.');

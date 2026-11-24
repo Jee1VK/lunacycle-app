@@ -1,17 +1,47 @@
-import { useState } from 'react';
-import { Delete, Lock, ShieldCheck } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Delete, Fingerprint, Lock, ShieldCheck } from 'lucide-react';
 
 interface PinLockScreenProps {
   disguiseMode: boolean;
+  biometricEnabled?: boolean;
+  biometricLabel?: string;
   onUnlock: (pin: string) => Promise<boolean>;
+  onBiometricUnlock?: () => Promise<boolean>;
 }
 
 const DIGITS = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
 
-export function PinLockScreen({ disguiseMode, onUnlock }: PinLockScreenProps) {
+export function PinLockScreen({
+  disguiseMode,
+  biometricEnabled = false,
+  biometricLabel = 'Fingerprint',
+  onUnlock,
+  onBiometricUnlock,
+}: PinLockScreenProps) {
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
   const [verifying, setVerifying] = useState(false);
+  const autoPromptedRef = useRef(false);
+
+  const triggerBiometric = async () => {
+    if (!onBiometricUnlock || verifying) return;
+    setError('');
+    setVerifying(true);
+    const ok = await onBiometricUnlock();
+    setVerifying(false);
+    if (!ok) {
+      setError('Biometric unlock cancelled — enter your 4-digit PIN or try again.');
+    }
+  };
+
+  useEffect(() => {
+    if (!biometricEnabled || !onBiometricUnlock || autoPromptedRef.current) return;
+    autoPromptedRef.current = true;
+    const id = window.setTimeout(() => {
+      void triggerBiometric();
+    }, 250);
+    return () => window.clearTimeout(id);
+  }, [biometricEnabled, onBiometricUnlock]);
 
   const handleDigit = async (digit: string) => {
     if (verifying || pin.length >= 4) return;
@@ -80,7 +110,21 @@ export function PinLockScreen({ disguiseMode, onUnlock }: PinLockScreenProps) {
               {d}
             </button>
           ))}
-          <div aria-hidden="true" />
+          {biometricEnabled && onBiometricUnlock ? (
+            <button
+              type="button"
+              className="pin-key"
+              onClick={() => void triggerBiometric()}
+              aria-label={`Unlock with ${biometricLabel}`}
+              title={`Unlock with ${biometricLabel}`}
+              disabled={verifying}
+              style={{ color: 'var(--color-brand-primary)' }}
+            >
+              <Fingerprint size={24} />
+            </button>
+          ) : (
+            <div aria-hidden="true" />
+          )}
           <button
             type="button"
             className="pin-key tabular"
@@ -99,6 +143,19 @@ export function PinLockScreen({ disguiseMode, onUnlock }: PinLockScreenProps) {
             <Delete size={20} />
           </button>
         </div>
+
+        {biometricEnabled && onBiometricUnlock ? (
+          <button
+            type="button"
+            className="btn-secondary"
+            style={{ width: '100%' }}
+            disabled={verifying}
+            onClick={() => void triggerBiometric()}
+          >
+            <Fingerprint size={18} />
+            Unlock with {biometricLabel}
+          </button>
+        ) : null}
 
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.76rem', color: 'var(--color-text-muted)' }}>
           <ShieldCheck size={14} />

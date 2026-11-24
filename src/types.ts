@@ -194,6 +194,7 @@ export interface PinLockConfig {
   saltBase64: string;
   verifierBase64: string;
   autoLockOnHide: boolean;
+  biometricEnabled?: boolean;
 }
 
 export interface PartnerSharePermissions {

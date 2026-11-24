@@ -47,11 +47,11 @@ jobs:
           fi
           npx cap sync android
 
-      - name: Configure Notification & Network Permissions in AndroidManifest.xml
+      - name: Configure Notification, Biometric & Network Permissions in AndroidManifest.xml
         run: |
           MANIFEST="android/app/src/main/AndroidManifest.xml"
-          if ! grep -q "POST_NOTIFICATIONS" "$MANIFEST"; then
-            sed -i 's|<application|<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n    <uses-permission android:name="android.permission.VIBRATE" />\n\n    <application|' "$MANIFEST"
+          if ! grep -q "USE_BIOMETRIC" "$MANIFEST"; then
+            sed -i 's|<application|<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n    <uses-permission android:name="android.permission.VIBRATE" />\n    <uses-permission android:name="android.permission.USE_BIOMETRIC" />\n\n    <application|' "$MANIFEST"
           fi
 
       - name: Embed Custom LunaCycle App Icon Across Android Mipmaps
