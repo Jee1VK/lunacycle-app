@@ -1,6 +1,10 @@
 import { Activity, FileText, Thermometer } from 'lucide-react';
 import { SYMPTOM_LABEL_MAP } from '../engine/catalog';
-import { computePhaseSymptomInsights, formatTemp } from '../engine/cycleEngine';
+import {
+  computeBbtCoverline,
+  computePhaseSymptomInsights,
+  formatTemp,
+} from '../engine/cycleEngine';
 import { compareDates, formatShortDate } from '../engine/temporal';
 import type { CycleStats, LunaData } from '../types';
 
@@ -52,6 +56,12 @@ export function InsightsView({
           })
           .join(' ')
       : '';
+
+  const coverline = computeBbtCoverline(bbtPoints);
+  const coverlineY =
+    coverline.confirmed && coverline.coverlineC !== null
+      ? 112 - ((coverline.coverlineC - minTemp) / tempRange) * 92
+      : null;
 
   return (
     <>
@@ -207,6 +217,29 @@ export function InsightsView({
               <line x1="18" y1="20" x2="302" y2="20" stroke="var(--color-border-subtle)" strokeDasharray="3 3" />
               <line x1="18" y1="66" x2="302" y2="66" stroke="var(--color-border-subtle)" strokeDasharray="3 3" />
               <line x1="18" y1="112" x2="302" y2="112" stroke="var(--color-border-subtle)" />
+              {coverlineY !== null ? (
+                <g>
+                  <line
+                    x1="18"
+                    y1={coverlineY}
+                    x2="302"
+                    y2={coverlineY}
+                    stroke="var(--color-brand-accent)"
+                    strokeWidth="1.8"
+                    strokeDasharray="5 4"
+                  />
+                  <text
+                    x="298"
+                    y={Math.max(12, coverlineY - 4)}
+                    textAnchor="end"
+                    fontSize="9"
+                    fontWeight="700"
+                    fill="var(--color-brand-accent)"
+                  >
+                    Coverline {coverline.coverlineC !== null ? formatTemp(coverline.coverlineC, data.settings.tempUnit) : ''}
+                  </text>
+                </g>
+              ) : null}
               <path
                 d={bbtSvgPath}
                 fill="none"

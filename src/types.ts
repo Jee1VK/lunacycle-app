@@ -94,9 +94,15 @@ export interface ReminderSettings {
   customNotificationText: string;
 }
 
+export type ThemePreference = 'system' | 'light' | 'dark';
+export type AppLanguage = 'en' | 'kn' | 'hi';
+
 export interface UserSettings {
   mode: TrackingMode;
   birthControlMode: boolean;
+  simpleMode: boolean;
+  theme: ThemePreference;
+  language: AppLanguage;
   defaultCycleLength: number;
   defaultPeriodLength: number;
   lutealLength: number;
@@ -244,6 +250,9 @@ export interface PartnerSnapshot {
 export const DEFAULT_SETTINGS: UserSettings = {
   mode: 'cycle',
   birthControlMode: false,
+  simpleMode: false,
+  theme: 'system',
+  language: 'en',
   defaultCycleLength: 28,
   defaultPeriodLength: 5,
   lutealLength: 14,

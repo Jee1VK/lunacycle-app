@@ -14,6 +14,7 @@ import {
   Unlock,
   Upload,
 } from 'lucide-react';
+import { LANGUAGE_OPTIONS } from '../engine/i18n';
 import {
   isNativeNotificationRuntime,
   requestNativeNotificationPermission,
@@ -39,6 +40,7 @@ interface SettingsViewProps {
   onRemovePin: () => Promise<void>;
   onExportJson: (passphrase?: string) => Promise<void>;
   onImportJsonText: (fileText: string, passphrase?: string) => Promise<'ok' | 'needs_passphrase' | 'error'>;
+  onImportExternalFile: (fileText: string) => void;
   onExportCsv: () => void;
   onExportDoctorPdf: () => void;
   onLoadSampleData: () => void;
@@ -58,6 +60,7 @@ export function SettingsView({
   onRemovePin,
   onExportJson,
   onImportJsonText,
+  onImportExternalFile,
   onExportCsv,
   onExportDoctorPdf,
   onLoadSampleData,
@@ -66,6 +69,7 @@ export function SettingsView({
 }: SettingsViewProps) {
   const { settings } = data;
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const externalImportRef = useRef<HTMLInputElement>(null);
 
   // Dialog states
   const [pinDialogOpen, setPinDialogOpen] = useState(false);
@@ -145,6 +149,75 @@ export function SettingsView({
 
   return (
     <>
+      {/* Appearance, Language & Simple Mode */}
+      <section className="card">
+        <h2 className="section-title">Appearance, Language &amp; Comfort</h2>
+        <p className="section-caption" style={{ marginBottom: 12 }}>
+          Customize theme, language, and optional Simple / Teen Mode
+        </p>
+
+        <div className="field-group" style={{ marginBottom: 12 }}>
+          <span className="field-label">Theme</span>
+          <div className="segmented" role="group" aria-label="Color theme">
+            {(
+              [
+                { id: 'system', label: 'System' },
+                { id: 'light', label: 'Pearl Light' },
+                { id: 'dark', label: 'Warm Dark' },
+              ] as const
+            ).map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                className="segmented-btn"
+                aria-pressed={settings.theme === opt.id}
+                onClick={() => onUpdateSettings({ theme: opt.id })}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="field-group" style={{ marginBottom: 12 }}>
+          <span className="field-label">Language</span>
+          <div className="segmented" role="group" aria-label="App language">
+            {LANGUAGE_OPTIONS.map((lang) => (
+              <button
+                key={lang.id}
+                type="button"
+                className="segmented-btn"
+                aria-pressed={settings.language === lang.id}
+                onClick={() => onUpdateSettings({ language: lang.id })}
+              >
+                {lang.native}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <label className="setting-row" htmlFor="simple-mode-switch">
+          <div className="setting-label-wrap">
+            <span className="setting-title">Simple / Teen Mode</span>
+            <span className="setting-desc">
+              Hides Intimacy, Mucus, LH strips, and fertility/TTC fields everywhere
+            </span>
+          </div>
+          <input
+            id="simple-mode-switch"
+            type="checkbox"
+            checked={settings.simpleMode}
+            onChange={(e) =>
+              onUpdateSettings({
+                simpleMode: e.target.checked,
+                mode: e.target.checked ? 'cycle' : settings.mode,
+              })
+            }
+            {...({ switch: '' } as Record<string, string>)}
+          />
+        </label>
+      </section>
+
       {/* Tracking Mode */}
       <section className="card">
         <h2 className="section-title">Tracking Mode</h2>
@@ -640,6 +713,30 @@ export function SettingsView({
             accept="application/json,.json"
             hidden
             onChange={handleImportFileChange}
+          />
+        </div>
+
+        <div className="btn-row" style={{ marginBottom: 10 }}>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => externalImportRef.current?.click()}
+          >
+            <Upload size={16} />
+            Import from Flo / Clue (JSON or CSV)
+          </button>
+          <input
+            ref={externalImportRef}
+            type="file"
+            accept=".json,.csv,application/json,text/csv"
+            hidden
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              e.target.value = '';
+              if (!file) return;
+              const text = await file.text();
+              onImportExternalFile(text);
+            }}
           />
         </div>
 

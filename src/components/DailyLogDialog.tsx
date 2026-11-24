@@ -19,6 +19,7 @@ interface DailyLogDialogProps {
   existingLog?: DailyLog;
   tempUnit: 'C' | 'F';
   mode: TrackingMode;
+  simpleMode: boolean;
   customSymptoms: string[];
   customMoods: string[];
   onAddCustomSymptom: (label: string) => void;
@@ -34,6 +35,7 @@ export function DailyLogDialog({
   existingLog,
   tempUnit,
   mode,
+  simpleMode,
   customSymptoms,
   customMoods,
   onAddCustomSymptom,
@@ -313,25 +315,27 @@ export function DailyLogDialog({
         </div>
       </section>
 
-      {/* Cervical Mucus & Fertility Cues */}
-      <section className="field-group">
-        <span className="field-label">Cervical Mucus / Discharge</span>
-        <div className="chip-group">
-          {MUCUS_OPTIONS.map((opt) => (
-            <button
-              key={opt.id}
-              type="button"
-              className="chip chip--sage"
-              aria-pressed={draft.mucus === opt.id}
-              onClick={() => setDraft((prev) => ({ ...prev, mucus: opt.id }))}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-      </section>
+      {/* Cervical Mucus & Fertility Cues (hidden in Simple / Teen Mode) */}
+      {!simpleMode ? (
+        <section className="field-group">
+          <span className="field-label">Cervical Mucus / Discharge</span>
+          <div className="chip-group">
+            {MUCUS_OPTIONS.map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                className="chip chip--sage"
+                aria-pressed={draft.mucus === opt.id}
+                onClick={() => setDraft((prev) => ({ ...prev, mucus: opt.id }))}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
-      {mode !== 'pregnancy' ? (
+      {mode !== 'pregnancy' && !simpleMode ? (
         <section className="field-group">
           <span className="field-label">Ovulation (LH) Strip Test</span>
           <p className="field-hint">
@@ -411,18 +415,20 @@ export function DailyLogDialog({
         </label>
       </section>
 
-      {/* Intimacy Toggle */}
-      <div className="chip-group">
-        <button
-          type="button"
-          className="chip chip--sage"
-          aria-pressed={Boolean(draft.sexLogged)}
-          onClick={() => setDraft((prev) => ({ ...prev, sexLogged: !prev.sexLogged }))}
-        >
-          <Heart size={15} />
-          {draft.sexLogged ? 'Intimacy logged' : 'Log intimacy'}
-        </button>
-      </div>
+      {/* Intimacy Toggle (hidden in Simple / Teen Mode) */}
+      {!simpleMode ? (
+        <div className="chip-group">
+          <button
+            type="button"
+            className="chip chip--sage"
+            aria-pressed={Boolean(draft.sexLogged)}
+            onClick={() => setDraft((prev) => ({ ...prev, sexLogged: !prev.sexLogged }))}
+          >
+            <Heart size={15} />
+            {draft.sexLogged ? 'Intimacy logged' : 'Log intimacy'}
+          </button>
+        </div>
+      ) : null}
 
       {/* Private Notes */}
       <label className="field-group">

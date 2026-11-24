@@ -45,6 +45,8 @@ import {
   parseImportedBackup,
 } from './engine/exportReport';
 import { createHygieneTimer, getProductMeta } from './engine/hygieneTimer';
+import { getUiStrings } from './engine/i18n';
+import { importExternalHistory } from './engine/importers';
 import {
   scheduleNativeHygieneNotification,
   syncNativeScheduledNotifications,
@@ -206,6 +208,12 @@ export function App() {
     document.addEventListener('visibilitychange', onVisChange);
     return () => document.removeEventListener('visibilitychange', onVisChange);
   }, [pinConfig]);
+
+  // Sync theme & language attributes on <html>
+  useEffect(() => {
+    document.documentElement.dataset.theme = data.settings.theme;
+    document.documentElement.lang = data.settings.language;
+  }, [data.settings.theme, data.settings.language]);
 
   // Sync page title & icon for Disguise Mode
   useEffect(() => {
@@ -589,6 +597,16 @@ export function App() {
     return 'ok';
   };
 
+  const handleImportExternalFile = (fileText: string) => {
+    const res = importExternalHistory(fileText, data.logs);
+    if ('error' in res) {
+      showToast(res.error);
+      return;
+    }
+    void persistData({ ...data, logs: res.mergedLogs });
+    showToast(`Imported ${res.importedDays} period days from ${res.source.toUpperCase()}!`);
+  };
+
   const handleLoadSampleData = () => {
     const sample = buildSampleDemoData(today);
     sample.settings.disguiseMode = data.settings.disguiseMode;
@@ -629,6 +647,7 @@ export function App() {
   }
 
   const disguised = data.settings.disguiseMode;
+  const t = getUiStrings(data.settings.language);
 
   return (
     <div className="app-shell">
@@ -783,6 +802,7 @@ export function App() {
               showToast(pass?.trim() ? 'Encrypted backup downloaded.' : 'JSON backup downloaded.');
             }}
             onImportJsonText={handleImportJsonText}
+            onImportExternalFile={handleImportExternalFile}
             onExportCsv={() => {
               exportCsvLogs(data, today);
               showToast('CSV logs exported.');
@@ -806,7 +826,7 @@ export function App() {
           }}
         >
           <Sparkles size={19} />
-          <span>Today</span>
+          <span>{t.navToday}</span>
         </button>
         <button
           type="button"
@@ -815,7 +835,7 @@ export function App() {
           onClick={() => setActiveTab('calendar')}
         >
           <Calendar size={19} />
-          <span>Calendar</span>
+          <span>{t.navCalendar}</span>
         </button>
         <button
           type="button"
@@ -827,7 +847,7 @@ export function App() {
           }}
         >
           <HeartHandshake size={19} />
-          <span>Partner</span>
+          <span>{t.navPartner}</span>
         </button>
         <button
           type="button"
@@ -839,7 +859,7 @@ export function App() {
           }}
         >
           <BarChart3 size={19} />
-          <span>Insights</span>
+          <span>{t.navInsights}</span>
         </button>
         <button
           type="button"
@@ -851,7 +871,7 @@ export function App() {
           }}
         >
           <Settings size={19} />
-          <span>Settings</span>
+          <span>{t.navSettings}</span>
         </button>
       </nav>
 
@@ -861,6 +881,7 @@ export function App() {
         existingLog={logDialogDate ? data.logs[logDialogDate] : undefined}
         tempUnit={data.settings.tempUnit}
         mode={data.settings.mode}
+        simpleMode={data.settings.simpleMode}
         customSymptoms={data.settings.customSymptoms}
         customMoods={data.settings.customMoods}
         onAddCustomSymptom={handleAddCustomSymptom}

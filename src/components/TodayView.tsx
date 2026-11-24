@@ -24,6 +24,7 @@ import {
   getHygieneTimerRemaining,
   SANITARY_PRODUCTS,
 } from '../engine/hygieneTimer';
+import { getUiStrings } from '../engine/i18n';
 import type { ActiveReminder } from '../engine/reminders';
 import {
   addDays,
@@ -72,9 +73,11 @@ export function TodayView({
   }, [activeTimer]);
 
   const timerState = activeTimer ? getHygieneTimerRemaining(activeTimer, nowMs) : null;
-  const pillStatus = data.settings.pillPack.enabled
-    ? computePillPackStatus(data.settings.pillPack, summary.today)
-    : null;
+  const pillStatus =
+    data.settings.pillPack.enabled && !data.settings.simpleMode
+      ? computePillPackStatus(data.settings.pillPack, summary.today)
+      : null;
+  const t = getUiStrings(data.settings.language);
   const phaseInfo = PHASE_INFO[summary.phase];
   const todayLog = data.logs[summary.today];
   const todayEstMl = (todayLog?.hygieneChanges ?? []).reduce((s, h) => s + h.estimatedMl, 0);
@@ -256,7 +259,7 @@ export function TodayView({
               onClick={onQuickTogglePeriodToday}
             >
               <Droplets size={18} />
-              {summary.isPeriodActiveToday ? 'Period Ended / Remove Today' : 'Log Period Today'}
+              {summary.isPeriodActiveToday ? t.removePeriodToday : t.logPeriodToday}
             </button>
           ) : null}
           <button
@@ -265,7 +268,7 @@ export function TodayView({
             onClick={() => onOpenLogDialog(summary.today)}
           >
             <Plus size={18} />
-            Log Symptoms &amp; Notes
+            {t.logSymptomsNotes}
           </button>
         </div>
 
@@ -495,9 +498,10 @@ export function TodayView({
         </div>
       </section>
 
-      {/* Fertility / Ovulation Window Card (Cycle & TTC modes; hidden in Birth Control Mode) */}
+      {/* Fertility / Ovulation Window Card (Cycle & TTC modes; hidden in Birth Control / Simple Mode) */}
       {summary.mode !== 'pregnancy' &&
       !data.settings.birthControlMode &&
+      !data.settings.simpleMode &&
       summary.ovulationDate &&
       summary.fertileStartDate ? (
         <section className="card">

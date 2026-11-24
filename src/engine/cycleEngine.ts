@@ -596,3 +596,40 @@ export function toCelsius(value: number, unit: 'C' | 'F'): number {
   }
   return Number(value.toFixed(2));
 }
+
+export interface BbtCoverlineResult {
+  confirmed: boolean;
+  coverlineC: number | null;
+  shiftStartDate: string | null;
+}
+
+/**
+ * Sympto-Thermal "3-over-6" rule:
+ * Detects a sustained thermal shift where 3 consecutive BBT readings are all
+ * above the highest of the previous 6 readings, with the 3rd reading >= +0.2 °C
+ * above that baseline. Coverline is drawn 0.05 °C above the highest of the 6.
+ */
+export function computeBbtCoverline(
+  points: Array<{ date: string; bbtC: number }>,
+): BbtCoverlineResult {
+  if (points.length < 9) {
+    return { confirmed: false, coverlineC: null, shiftStartDate: null };
+  }
+
+  for (let i = 6; i <= points.length - 3; i++) {
+    const prev6Max = Math.max(...points.slice(i - 6, i).map((p) => p.bbtC));
+    const t1 = points[i].bbtC;
+    const t2 = points[i + 1].bbtC;
+    const t3 = points[i + 2].bbtC;
+
+    if (t1 > prev6Max && t2 > prev6Max && t3 >= Number((prev6Max + 0.2).toFixed(2))) {
+      return {
+        confirmed: true,
+        coverlineC: Number((prev6Max + 0.05).toFixed(2)),
+        shiftStartDate: points[i].date,
+      };
+    }
+  }
+
+  return { confirmed: false, coverlineC: null, shiftStartDate: null };
+}
