@@ -621,6 +621,15 @@ export function computeBbtCoverline(
   }
 
   for (let i = 6; i <= points.length - 3; i++) {
+    // Ensure the 6 baseline temps and 3 shift temps belong to the same cycle window
+    // (avoid false coverlines across sparse readings separated by weeks/months)
+    const baselineSpanDays = daysBetween(points[i - 6].date, points[i - 1].date);
+    const gapToShiftDays = daysBetween(points[i - 1].date, points[i].date);
+    const shiftSpanDays = daysBetween(points[i].date, points[i + 2].date);
+    if (baselineSpanDays > 18 || gapToShiftDays > 4 || shiftSpanDays > 5) {
+      continue;
+    }
+
     const prev6Max = Math.max(...points.slice(i - 6, i).map((p) => p.bbtC));
     const t1 = points[i].bbtC;
     const t2 = points[i + 1].bbtC;

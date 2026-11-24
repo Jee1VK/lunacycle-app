@@ -406,7 +406,7 @@ export const CYCLE_ARTICLES: CycleArticle[] = [
     accentBg: 'var(--color-surface-elevated)',
     keyTakeaways: [
       'Cycles consistently shorter than 21 days or longer than 35 days (outside teens/perimenopause).',
-      'Soaking through pads/tampons every 1–2 hours or passing large clots repeatedly.',
+      'Soaking through pads/tampons every 1–2 hours, passing large clots, or total flow consistently above ~80 mL per period.',
       'Severe pain that does not respond to standard relief or interferes with work/school.',
     ],
     sections: [

@@ -67,5 +67,19 @@ describe('Tier 2: Flo/Clue importer & BBT 3-over-6 coverline', () => {
     expect(res.confirmed).toBe(true);
     expect(res.coverlineC).toBe(36.40);
     expect(res.shiftStartDate).toBe('2026-04-07');
+
+    // Sparse readings across disconnected months must NOT falsely confirm ovulation
+    const sparseCrossMonth = [
+      { date: '2026-01-01', bbtC: 36.25 },
+      { date: '2026-01-02', bbtC: 36.30 },
+      { date: '2026-01-03', bbtC: 36.28 },
+      { date: '2026-01-04', bbtC: 36.32 },
+      { date: '2026-01-05', bbtC: 36.29 },
+      { date: '2026-01-06', bbtC: 36.35 },
+      { date: '2026-03-07', bbtC: 36.45 },
+      { date: '2026-03-08', bbtC: 36.52 },
+      { date: '2026-03-09', bbtC: 36.60 },
+    ];
+    expect(computeBbtCoverline(sparseCrossMonth).confirmed).toBe(false);
   });
 });

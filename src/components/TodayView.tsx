@@ -522,7 +522,7 @@ export function TodayView({
                 {formatShortDate(summary.fertileStartDate)} –{' '}
                 {formatShortDate(summary.fertileEndDate ?? summary.ovulationDate)}
               </div>
-              <div className="metric-sub">6-day high-chance window</div>
+              <div className="metric-sub">7-day fertile window</div>
             </div>
             <div className="metric-tile">
               <div className="metric-label">Peak Ovulation</div>
