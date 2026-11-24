@@ -6,6 +6,8 @@
 
 const MAX_BODY_BYTES = 65536;
 const TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
+const MAX_FAILED_ATTEMPTS = 15;
+const RATE_WINDOW_SECONDS = 60 * 15; // 15 minutes
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -119,14 +121,27 @@ export default {
     }
 
     if (request.method === 'GET') {
+      const clientIp = request.headers.get('CF-Connecting-IP') || 'unknown';
+      const rlKey = `rl:${clientIp}:${code}`;
+      const attempts = Number((await env.LUNACYCLE_SYNC.get(rlKey)) || '0');
+      if (attempts >= MAX_FAILED_ATTEMPTS) {
+        return json({ error: 'Too many failed attempts. Please wait 15 minutes.' }, 429);
+      }
+
       const raw = await env.LUNACYCLE_SYNC.get(key);
       if (!raw) {
+        await env.LUNACYCLE_SYNC.put(rlKey, String(attempts + 1), {
+          expirationTtl: RATE_WINDOW_SECONDS,
+        });
         return json({ error: 'Partner code not found' }, 404);
       }
       const stored = JSON.parse(raw);
       if (stored.pinHash) {
         const validPin = await constantTimeEqual(stored.pinHash, pinHeader);
         if (!validPin) {
+          await env.LUNACYCLE_SYNC.put(rlKey, String(attempts + 1), {
+            expirationTtl: RATE_WINDOW_SECONDS,
+          });
           return json({ error: 'Invalid PIN', pinRequired: true }, 401);
         }
       }

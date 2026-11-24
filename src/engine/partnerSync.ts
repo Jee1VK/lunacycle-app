@@ -40,6 +40,111 @@ export async function hashPartnerPin(pin: string): Promise<string> {
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+const E2EE_ITERATIONS = 120_000;
+
+export interface PartnerE2eeEnvelope {
+  e2ee: true;
+  algorithm: 'AES-GCM';
+  kdf: 'PBKDF2-SHA256';
+  iterations: number;
+  saltBase64: string;
+  ivBase64: string;
+  ciphertextBase64: string;
+  updatedAt: string;
+  pinHash?: string;
+  writeSecret?: string;
+}
+
+function toBase64(bytes: Uint8Array): string {
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
+
+function fromBase64(b64: string): Uint8Array<ArrayBuffer> {
+  const bin = atob(b64);
+  const buf = new ArrayBuffer(bin.length);
+  const bytes = new Uint8Array(buf);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+async function derivePartnerKey(
+  code: string,
+  pin: string | undefined,
+  salt: Uint8Array<ArrayBuffer>,
+): Promise<CryptoKey> {
+  const secret = `lunacycle-e2ee:${code.trim().toUpperCase()}:${(pin ?? '').trim()}`;
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    'PBKDF2',
+    false,
+    ['deriveKey'],
+  );
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt, iterations: E2EE_ITERATIONS, hash: 'SHA-256' },
+    keyMaterial,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt'],
+  );
+}
+
+export async function encryptPartnerSnapshot(
+  snapshot: PartnerSnapshot,
+  code: string,
+  pin?: string,
+): Promise<PartnerE2eeEnvelope> {
+  const salt = new Uint8Array(new ArrayBuffer(16));
+  const iv = new Uint8Array(new ArrayBuffer(12));
+  crypto.getRandomValues(salt);
+  crypto.getRandomValues(iv);
+
+  const { writeSecret, pinHash, ...sensitive } = snapshot;
+  const key = await derivePartnerKey(code, pin, salt);
+  const plaintext = new TextEncoder().encode(JSON.stringify(sensitive));
+  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plaintext);
+
+  return {
+    e2ee: true,
+    algorithm: 'AES-GCM',
+    kdf: 'PBKDF2-SHA256',
+    iterations: E2EE_ITERATIONS,
+    saltBase64: toBase64(salt),
+    ivBase64: toBase64(iv),
+    ciphertextBase64: toBase64(new Uint8Array(ciphertext)),
+    updatedAt: snapshot.updatedAt,
+    pinHash,
+    writeSecret,
+  };
+}
+
+export async function decryptPartnerSnapshot(
+  envelope: PartnerE2eeEnvelope,
+  code: string,
+  pin?: string,
+): Promise<PartnerSnapshot> {
+  const salt = fromBase64(envelope.saltBase64);
+  const iv = fromBase64(envelope.ivBase64);
+  const ciphertext = fromBase64(envelope.ciphertextBase64);
+  const key = await derivePartnerKey(code, pin, salt);
+  const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
+  return JSON.parse(new TextDecoder().decode(plaintext)) as PartnerSnapshot;
+}
+
+function isPartnerE2eeEnvelope(val: unknown): val is PartnerE2eeEnvelope {
+  if (!val || typeof val !== 'object') return false;
+  const obj = val as Record<string, unknown>;
+  return (
+    obj.e2ee === true &&
+    obj.algorithm === 'AES-GCM' &&
+    typeof obj.saltBase64 === 'string' &&
+    typeof obj.ivBase64 === 'string' &&
+    typeof obj.ciphertextBase64 === 'string'
+  );
+}
+
 export function createDefaultPartnerShareConfig(): PartnerShareConfig {
   return {
     enabled: false,
@@ -199,10 +304,12 @@ export async function pushPartnerSnapshot(
     return { ok: false, error: 'No sync relay URL configured.' };
   }
   try {
+    // End-to-End Encrypt on-device before uploading — Cloudflare KV only ever sees ciphertext
+    const encryptedEnvelope = await encryptPartnerSnapshot(snapshot, config.code, config.pin);
     const res = await fetch(`${baseUrl}/sync/${encodeURIComponent(config.code.toUpperCase())}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(snapshot),
+      body: JSON.stringify(encryptedEnvelope),
     });
     if (!res.ok) {
       const err = (await res.json().catch(() => ({}))) as { error?: string };
@@ -226,7 +333,7 @@ export async function fetchPartnerSnapshot(
       method: 'GET',
       headers: watch.pinHash ? { 'X-LunaCycle-Pin': watch.pinHash } : {},
     });
-    const data = (await res.json().catch(() => ({}))) as Partial<PartnerSnapshot> & {
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown> & {
       error?: string;
       pinRequired?: boolean;
     };
@@ -236,7 +343,15 @@ export async function fetchPartnerSnapshot(
         pinRequired: Boolean(data.pinRequired),
       };
     }
-    return { snapshot: data as PartnerSnapshot };
+    if (isPartnerE2eeEnvelope(data)) {
+      try {
+        const decrypted = await decryptPartnerSnapshot(data, watch.code, watch.pin);
+        return { snapshot: decrypted };
+      } catch {
+        return { error: 'Unable to decrypt snapshot — check Partner Code and PIN.', pinRequired: true };
+      }
+    }
+    return { snapshot: data as unknown as PartnerSnapshot };
   } catch {
     return { error: 'Offline or unable to reach relay.' };
   }

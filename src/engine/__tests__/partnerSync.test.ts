@@ -4,6 +4,8 @@ import {
   buildPartnerSnapshot,
   buildPartnerTextSummary,
   createDefaultPartnerShareConfig,
+  decryptPartnerSnapshot,
+  encryptPartnerSnapshot,
   generatePartnerCode,
   getPartnerSupportTips,
   hashPartnerPin,
@@ -76,5 +78,33 @@ describe('partnerSync engine', () => {
     const text = buildPartnerTextSummary(snapAll);
     expect(text).toContain('Priya');
     expect(text).toContain('Period active today');
+  });
+
+  it('end-to-end encrypts partner snapshots with AES-256-GCM so relay sees zero plaintext', async () => {
+    const data = createInitialData();
+    data.logs['2026-05-01'] = {
+      ...createEmptyLog('2026-05-01'),
+      flow: 'heavy',
+      symptoms: ['cramps'],
+    };
+    const stats = computeCycleStats(data.logs, data.settings);
+    const summary = computeTodaySummary('2026-05-01', data.logs, stats, data.settings);
+    const cfg = createDefaultPartnerShareConfig();
+    cfg.profileLabel = 'Ananya';
+
+    const snap = buildPartnerSnapshot(cfg, data, stats, summary);
+    const envelope = await encryptPartnerSnapshot(snap, cfg.code, '4321');
+    const rawEnvelope = JSON.stringify(envelope);
+
+    expect(envelope.e2ee).toBe(true);
+    expect(rawEnvelope).not.toContain('Ananya');
+    expect(rawEnvelope).not.toContain('cramps');
+    expect(rawEnvelope).not.toContain('menstrual');
+
+    const decrypted = await decryptPartnerSnapshot(envelope, cfg.code, '4321');
+    expect(decrypted.profileLabel).toBe('Ananya');
+    expect(decrypted.todaySymptoms).toEqual(['cramps']);
+
+    await expect(decryptPartnerSnapshot(envelope, cfg.code, '9999')).rejects.toThrow();
   });
 });

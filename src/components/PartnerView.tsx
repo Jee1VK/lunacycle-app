@@ -174,9 +174,11 @@ export function PartnerView({
     }
     setLoadingWatch(true);
     setWatchStatus(null);
-    const pinHash = connectPin.trim() ? await hashPartnerPin(connectPin) : watchConfig?.pinHash;
+    const cleanPin = connectPin.trim() || watchConfig?.pin;
+    const pinHash = cleanPin ? await hashPartnerPin(cleanPin) : undefined;
     const nextWatch: PartnerWatchConfig = {
       code: cleanCode,
+      pin: cleanPin,
       pinHash,
       syncServerUrl: connectUrl.trim(),
       alertsOnThisPhone: watchConfig?.alertsOnThisPhone ?? true,
@@ -612,11 +614,12 @@ export function PartnerView({
                   className="btn-secondary"
                   style={{ minHeight: 44, padding: '0 12px', fontSize: '0.82rem' }}
                   onClick={async () => {
-                    const hashed = pinInput.trim() ? await hashPartnerPin(pinInput) : undefined;
-                    const updated = { ...shareConfig, pinHash: hashed };
+                    const cleanPin = pinInput.trim() || undefined;
+                    const hashed = cleanPin ? await hashPartnerPin(cleanPin) : undefined;
+                    const updated = { ...shareConfig, pin: cleanPin, pinHash: hashed };
                     onUpdateShareConfig(updated);
                     setPinInput('');
-                    setShareStatus(hashed ? 'Partner PIN set.' : 'Partner PIN removed.');
+                    setShareStatus(hashed ? 'Partner PIN set (E2EE key updated).' : 'Partner PIN removed.');
                     if (updated.enabled) {
                       void handleSyncNow(updated);
                     }

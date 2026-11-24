@@ -208,6 +208,7 @@ export interface PartnerShareConfig {
   code: string;
   writeSecret: string;
   profileLabel: string;
+  pin?: string; // Kept locally in IndexedDB to derive E2EE AES-GCM key
   pinHash?: string;
   syncServerUrl: string;
   permissions: PartnerSharePermissions;
@@ -216,6 +217,7 @@ export interface PartnerShareConfig {
 
 export interface PartnerWatchConfig {
   code: string;
+  pin?: string; // Kept locally in IndexedDB to decrypt E2EE snapshots
   pinHash?: string;
   syncServerUrl: string;
   alertsOnThisPhone: boolean;
