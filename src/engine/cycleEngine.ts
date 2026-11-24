@@ -29,13 +29,16 @@ export function hasNonFlowLogDetails(log: DailyLog | undefined): boolean {
   if (!log) return false;
   return (
     log.symptoms.length > 0 ||
+    (log.customSymptoms?.length ?? 0) > 0 ||
     log.moods.length > 0 ||
+    (log.customMoods?.length ?? 0) > 0 ||
     log.mucus !== 'none' ||
     log.lhTest !== 'none' ||
     typeof log.bbtC === 'number' ||
     typeof log.sleepHours === 'number' ||
     typeof log.waterGlasses === 'number' ||
     Boolean(log.sexLogged) ||
+    (log.hygieneChanges?.length ?? 0) > 0 ||
     log.notes.trim().length > 0
   );
 }
@@ -431,8 +434,10 @@ export function classifyDate(
   const fertileStart = addDays(ovDate, -5);
   const fertileEnd = addDays(ovDate, 1);
 
-  const isOvulation = !isPredictedPeriod && compareDates(date, ovDate) === 0;
+  const isOvulation =
+    !settings.birthControlMode && !isPredictedPeriod && compareDates(date, ovDate) === 0;
   const isFertile =
+    !settings.birthControlMode &&
     !isPredictedPeriod &&
     compareDates(date, fertileStart) >= 0 &&
     compareDates(date, fertileEnd) <= 0;

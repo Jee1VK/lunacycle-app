@@ -14,6 +14,10 @@ import {
   Unlock,
   Upload,
 } from 'lucide-react';
+import {
+  isNativeNotificationRuntime,
+  requestNativeNotificationPermission,
+} from '../engine/nativeNotifications';
 import type { OtaUpdateState } from '../engine/otaUpdater';
 import { addDays } from '../engine/temporal';
 import {
@@ -121,6 +125,15 @@ export function SettingsView({
   };
 
   const handleEnableNotifications = async () => {
+    if (isNativeNotificationRuntime()) {
+      const granted = await requestNativeNotificationPermission();
+      onNotify(
+        granted
+          ? 'Native Android OS notifications enabled!'
+          : 'Permission denied. Enable notifications in Android App Settings.',
+      );
+      return;
+    }
     const perm = await requestNotificationPermission();
     setNotifStatus(perm);
     if (perm === 'granted') {
@@ -268,6 +281,104 @@ export function SettingsView({
         </div>
       </section>
 
+      {/* Contraception, Birth Control Mode & Pill Pack */}
+      <section className="card">
+        <h2 className="section-title">Contraception &amp; Pill Pack</h2>
+        <p className="section-caption" style={{ marginBottom: 12 }}>
+          Optional birth control mode, daily pill pack checklist, and LARC renewal tracking
+        </p>
+
+        <label className="setting-row" htmlFor="bc-mode-switch">
+          <div className="setting-label-wrap">
+            <span className="setting-title">Birth Control Mode</span>
+            <span className="setting-desc">
+              Hides ovulation &amp; fertile window predictions across Today and Calendar
+            </span>
+          </div>
+          <input
+            id="bc-mode-switch"
+            type="checkbox"
+            checked={settings.birthControlMode}
+            onChange={(e) => onUpdateSettings({ birthControlMode: e.target.checked })}
+            {...({ switch: '' } as Record<string, string>)}
+          />
+        </label>
+
+        <label className="setting-row" htmlFor="pill-pack-switch">
+          <div className="setting-label-wrap">
+            <span className="setting-title">Daily Pill Pack Tracker</span>
+            <span className="setting-desc">
+              Shows 28-day pill grid and streak on the Today screen
+            </span>
+          </div>
+          <input
+            id="pill-pack-switch"
+            type="checkbox"
+            checked={settings.pillPack.enabled}
+            onChange={(e) =>
+              onUpdateSettings({
+                pillPack: {
+                  ...settings.pillPack,
+                  enabled: e.target.checked,
+                  packStartDate: settings.pillPack.packStartDate ?? today,
+                },
+              })
+            }
+            {...({ switch: '' } as Record<string, string>)}
+          />
+        </label>
+
+        {settings.pillPack.enabled ? (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginTop: 10 }}>
+            <label className="field-group">
+              <span className="field-label">Regimen</span>
+              <select
+                className="input-control"
+                value={settings.pillPack.regimen}
+                onChange={(e) =>
+                  onUpdateSettings({
+                    pillPack: {
+                      ...settings.pillPack,
+                      regimen: e.target.value as '21_7' | '28_active' | '24_4',
+                    },
+                  })
+                }
+              >
+                <option value="21_7">21 / 7</option>
+                <option value="24_4">24 / 4</option>
+                <option value="28_active">28 Active</option>
+              </select>
+            </label>
+            <label className="field-group">
+              <span className="field-label">Pack Start</span>
+              <input
+                type="date"
+                className="input-control tabular"
+                value={settings.pillPack.packStartDate ?? today}
+                onChange={(e) =>
+                  onUpdateSettings({
+                    pillPack: { ...settings.pillPack, packStartDate: e.target.value || today },
+                  })
+                }
+              />
+            </label>
+            <label className="field-group">
+              <span className="field-label">Pill Time</span>
+              <input
+                type="time"
+                className="input-control tabular"
+                value={settings.pillPack.reminderTime}
+                onChange={(e) =>
+                  onUpdateSettings({
+                    pillPack: { ...settings.pillPack, reminderTime: e.target.value || '21:00' },
+                  })
+                }
+              />
+            </label>
+          </div>
+        ) : null}
+      </section>
+
       {/* Privacy & Security Vault */}
       <section className="card">
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
@@ -386,6 +497,24 @@ export function SettingsView({
           </div>
         ) : null}
 
+        <label className="setting-row" htmlFor="rem-pms">
+          <div className="setting-label-wrap">
+            <span className="setting-title">PMS Window Heads-Up</span>
+            <span className="setting-desc">Gentle cue 3–5 days before expected period</span>
+          </div>
+          <input
+            id="rem-pms"
+            type="checkbox"
+            checked={settings.reminders.pmsEnabled}
+            onChange={(e) =>
+              onUpdateSettings({
+                reminders: { ...settings.reminders, pmsEnabled: e.target.checked },
+              })
+            }
+            {...({ switch: '' } as Record<string, string>)}
+          />
+        </label>
+
         <label className="setting-row" htmlFor="rem-fertile">
           <div className="setting-label-wrap">
             <span className="setting-title">Fertile Window &amp; Ovulation</span>
@@ -422,23 +551,46 @@ export function SettingsView({
           />
         </label>
 
-        {notifStatus !== 'unsupported' ? (
+        <label className="field-group" style={{ marginTop: 10 }}>
+          <span className="field-label">Custom Discreet Notification Text (Optional)</span>
+          <input
+            type="text"
+            className="input-control"
+            placeholder="e.g. Remember your herbal tea"
+            value={settings.reminders.customNotificationText}
+            onChange={(e) =>
+              onUpdateSettings({
+                reminders: { ...settings.reminders, customNotificationText: e.target.value },
+              })
+            }
+          />
+          <p className="field-hint">
+            Overrides Android OS notification body text so lock-screen alerts stay completely private.
+          </p>
+        </label>
+
+        {notifStatus !== 'unsupported' || isNativeNotificationRuntime() ? (
           <div className="card-subtle" style={{ marginTop: 12 }}>
             <p style={{ margin: '0 0 8px', fontSize: '0.8rem', color: 'var(--color-text-secondary)' }}>
-              <strong>Why we ask:</strong> Browser notifications are generated locally on your device — no push server ever receives your dates.
+              <strong>Why we ask:</strong>{' '}
+              {isNativeNotificationRuntime()
+                ? 'Native Android notifications fire locally on your phone even when the app is closed — zero push servers.'
+                : 'Browser notifications are generated locally on your device — no push server ever receives your dates.'}
             </p>
             <button
               type="button"
               className="btn-secondary"
-              disabled={notifStatus === 'granted'}
+              disabled={!isNativeNotificationRuntime() && notifStatus === 'granted'}
               onClick={handleEnableNotifications}
             >
               <Bell size={16} />
-              {notifStatus === 'granted'
-                ? 'Browser Notifications Active'
-                : notifStatus === 'denied'
-                  ? 'Notifications Blocked in Browser'
-                  : 'Enable Local Browser Notifications'}
+              {isNativeNotificationRuntime()
+                ? 'Enable Native Android OS Notifications'
+                : notifStatus === 'granted'
+                  ? 'Browser Notifications Active'
+                  : notifStatus === 'denied'
+                    ? 'Notifications Blocked in Browser'
+                    : 'Enable Local Browser Notifications'}
             </button>
           </div>
         ) : null}

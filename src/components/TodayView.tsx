@@ -1,10 +1,15 @@
+import { useEffect, useState } from 'react';
 import {
   Baby,
   Bell,
   CalendarPlus,
+  Check,
+  Clock,
   Droplets,
+  Pill,
   Plus,
   Sparkles,
+  Square,
   Sun,
 } from 'lucide-react';
 import {
@@ -14,6 +19,11 @@ import {
   SYMPTOM_LABEL_MAP,
 } from '../engine/catalog';
 import { classifyDate, formatTemp } from '../engine/cycleEngine';
+import {
+  computePillPackStatus,
+  getHygieneTimerRemaining,
+  SANITARY_PRODUCTS,
+} from '../engine/hygieneTimer';
 import type { ActiveReminder } from '../engine/reminders';
 import {
   addDays,
@@ -21,7 +31,7 @@ import {
   formatWeekdayShort,
   getDayOfMonth,
 } from '../engine/temporal';
-import type { CycleStats, LunaData, TodaySummary } from '../types';
+import type { CycleStats, LunaData, SanitaryProductType, TodaySummary } from '../types';
 
 interface TodayViewProps {
   data: LunaData;
@@ -32,6 +42,10 @@ interface TodayViewProps {
   onOpenLogDialog: (date: string) => void;
   onLoadSampleData: () => void;
   onJumpToCalendarEdit: () => void;
+  onStartHygieneTimer: (product: SanitaryProductType) => void;
+  onLogHygieneChange: (restart: boolean) => void;
+  onStopHygieneTimer: () => void;
+  onTogglePillDate: (date: string) => void;
 }
 
 export function TodayView({
@@ -43,9 +57,27 @@ export function TodayView({
   onOpenLogDialog,
   onLoadSampleData,
   onJumpToCalendarEdit,
+  onStartHygieneTimer,
+  onLogHygieneChange,
+  onStopHygieneTimer,
+  onTogglePillDate,
 }: TodayViewProps) {
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const activeTimer = data.settings.activeHygieneTimer;
+
+  useEffect(() => {
+    if (!activeTimer) return;
+    const id = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [activeTimer]);
+
+  const timerState = activeTimer ? getHygieneTimerRemaining(activeTimer, nowMs) : null;
+  const pillStatus = data.settings.pillPack.enabled
+    ? computePillPackStatus(data.settings.pillPack, summary.today)
+    : null;
   const phaseInfo = PHASE_INFO[summary.phase];
   const todayLog = data.logs[summary.today];
+  const todayEstMl = (todayLog?.hygieneChanges ?? []).reduce((s, h) => s + h.estimatedMl, 0);
 
   // Build 7-day strip: 5 days back, today, 1 day forward
   const weekDates = [-5, -4, -3, -2, -1, 0, 1].map((offset) => addDays(summary.today, offset));
@@ -272,6 +304,156 @@ export function TodayView({
         </section>
       ) : null}
 
+      {/* Sanitary Product Hygiene Timer (shown during active period or when a timer is running) */}
+      {summary.isPeriodActiveToday || activeTimer ? (
+        <section className="card" aria-label="Sanitary product hygiene timer">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Clock size={18} color="var(--color-brand-primary)" />
+              <h3 className="section-title" style={{ margin: 0 }}>
+                Hygiene Timer
+              </h3>
+            </div>
+            {todayEstMl > 0 ? (
+              <span className="phase-badge phase-badge--menstrual tabular">
+                ~{todayEstMl} mL today
+              </span>
+            ) : null}
+          </div>
+
+          {activeTimer && timerState ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                <span style={{ fontSize: '0.88rem', fontWeight: 600, textTransform: 'capitalize' }}>
+                  {activeTimer.product} ({activeTimer.durationHours}h timer)
+                </span>
+                <span
+                  className="tabular"
+                  style={{
+                    fontSize: '1.25rem',
+                    fontWeight: 700,
+                    color: timerState.isDue ? 'var(--color-feedback-error)' : 'var(--color-brand-primary)',
+                  }}
+                >
+                  {timerState.formatted}
+                </span>
+              </div>
+              <div
+                style={{
+                  height: 8,
+                  borderRadius: 9999,
+                  background: 'var(--color-surface-elevated)',
+                  overflow: 'hidden',
+                }}
+              >
+                <div
+                  style={{
+                    height: '100%',
+                    width: `${timerState.progressPercent}%`,
+                    background: timerState.isDue
+                      ? 'var(--color-feedback-error)'
+                      : 'var(--color-brand-primary)',
+                    transition: 'width 300ms ease',
+                  }}
+                />
+              </div>
+              <div className="btn-row">
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={() => onLogHygieneChange(true)}
+                >
+                  <Check size={16} />
+                  Changed · Restart
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={onStopHygieneTimer}
+                >
+                  <Square size={14} />
+                  Stop
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <p className="section-caption" style={{ marginBottom: 10 }}>
+                Start a discreet change reminder and track estimated flow volume:
+              </p>
+              <div className="chip-group">
+                {SANITARY_PRODUCTS.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    className="chip"
+                    onClick={() => onStartHygieneTimer(p.id)}
+                  >
+                    {p.label} ({p.defaultHours}h)
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </section>
+      ) : null}
+
+      {/* Daily Pill Pack Widget (shown when enabled in Settings) */}
+      {pillStatus ? (
+        <section className="card" aria-label="Daily pill pack tracker">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Pill size={18} color="var(--color-brand-secondary)" />
+              <div>
+                <h3 className="section-title" style={{ margin: 0 }}>
+                  Pill Pack · Day {pillStatus.dayInPack}/28
+                </h3>
+                <p className="section-caption">
+                  {pillStatus.isBreakDay ? 'Placebo / break week' : 'Active pill day'} · {pillStatus.streak}-day streak
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              className={pillStatus.takenToday ? 'btn-secondary' : 'btn-primary'}
+              style={{ minHeight: 42, padding: '8px 14px', fontSize: '0.84rem' }}
+              onClick={() => onTogglePillDate(summary.today)}
+            >
+              <Check size={15} />
+              {pillStatus.takenToday ? 'Taken' : 'Mark Taken'}
+            </button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 5 }}>
+            {pillStatus.packDates.map((d) => (
+              <button
+                key={d.date}
+                type="button"
+                onClick={() => onTogglePillDate(d.date)}
+                aria-label={`Pack day ${d.dayNumber}${d.taken ? ', taken' : ''}`}
+                style={{
+                  minHeight: 34,
+                  borderRadius: 8,
+                  border: d.isToday
+                    ? '2px solid var(--color-brand-accent)'
+                    : '1px solid var(--color-border-subtle)',
+                  background: d.taken
+                    ? 'var(--color-brand-secondary)'
+                    : d.isBreak
+                      ? 'var(--color-surface-elevated)'
+                      : 'var(--color-surface-card)',
+                  color: d.taken ? '#FFFFFF' : 'var(--color-text-secondary)',
+                  fontSize: '0.74rem',
+                  fontWeight: 600,
+                }}
+                className="tabular"
+              >
+                {d.dayNumber}
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       {/* 7-Day Interactive Strip */}
       <section className="card" aria-label="Recent 7 days">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
@@ -313,8 +495,11 @@ export function TodayView({
         </div>
       </section>
 
-      {/* Fertility / Ovulation Window Card (Cycle & TTC modes) */}
-      {summary.mode !== 'pregnancy' && summary.ovulationDate && summary.fertileStartDate ? (
+      {/* Fertility / Ovulation Window Card (Cycle & TTC modes; hidden in Birth Control Mode) */}
+      {summary.mode !== 'pregnancy' &&
+      !data.settings.birthControlMode &&
+      summary.ovulationDate &&
+      summary.fertileStartDate ? (
         <section className="card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
             <h3 className="section-title" style={{ margin: 0 }}>
@@ -383,9 +568,19 @@ export function TodayView({
                 {SYMPTOM_LABEL_MAP[s]}
               </span>
             ))}
+            {(todayLog.customSymptoms ?? []).map((s) => (
+              <span key={`cs-${s}`} className="phase-badge phase-badge--follicular">
+                {s}
+              </span>
+            ))}
             {todayLog.moods.map((m) => (
               <span key={m} className="phase-badge phase-badge--fertile">
                 {MOOD_LABEL_MAP[m]}
+              </span>
+            ))}
+            {(todayLog.customMoods ?? []).map((m) => (
+              <span key={`cm-${m}`} className="phase-badge phase-badge--fertile">
+                {m}
               </span>
             ))}
             {typeof todayLog.bbtC === 'number' ? (

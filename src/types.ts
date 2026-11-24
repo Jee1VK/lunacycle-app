@@ -40,30 +40,63 @@ export type CyclePhase =
 
 export type RegularityStatus = 'learning' | 'regular' | 'slightly_variable' | 'irregular';
 
+export type SanitaryProductType = 'pad' | 'tampon' | 'cup' | 'disc';
+
+export interface ActiveHygieneTimer {
+  product: SanitaryProductType;
+  startedAt: string; // ISO timestamp
+  durationHours: number;
+  endsAt: string; // ISO timestamp
+}
+
+export interface HygieneChangeEntry {
+  product: SanitaryProductType;
+  changedAt: string; // ISO timestamp
+  estimatedMl: number;
+}
+
+export type PillRegimen = '21_7' | '28_active' | '24_4';
+
+export interface PillPackSettings {
+  enabled: boolean;
+  regimen: PillRegimen;
+  packStartDate: string | null; // YYYY-MM-DD
+  reminderTime: string; // HH:mm
+  takenDates: string[]; // YYYY-MM-DD[]
+  larcType: string; // e.g. 'IUD', 'Implant', ''
+  larcRenewalDate: string | null; // YYYY-MM-DD
+}
+
 export interface DailyLog {
   date: string; // Location-agnostic YYYY-MM-DD (Temporal.PlainDate)
   flow: FlowLevel;
   symptoms: SymptomId[];
+  customSymptoms?: string[];
   moods: MoodId[];
+  customMoods?: string[];
   mucus: MucusType;
   lhTest: LhTestResult;
   bbtC?: number;
   sleepHours?: number;
   waterGlasses?: number;
   sexLogged?: boolean;
+  hygieneChanges?: HygieneChangeEntry[];
   notes: string;
 }
 
 export interface ReminderSettings {
   periodEnabled: boolean;
   periodBeforeDays: number;
+  pmsEnabled: boolean;
   fertileEnabled: boolean;
   dailyLogEnabled: boolean;
   dailyLogTime: string; // HH:mm wall-clock time
+  customNotificationText: string;
 }
 
 export interface UserSettings {
   mode: TrackingMode;
+  birthControlMode: boolean;
   defaultCycleLength: number;
   defaultPeriodLength: number;
   lutealLength: number;
@@ -71,6 +104,10 @@ export interface UserSettings {
   pregnancyLmpDate: string | null;
   pregnancyDueDate: string | null;
   disguiseMode: boolean;
+  customSymptoms: string[];
+  customMoods: string[];
+  pillPack: PillPackSettings;
+  activeHygieneTimer: ActiveHygieneTimer | null;
   reminders: ReminderSettings;
 }
 
@@ -206,6 +243,7 @@ export interface PartnerSnapshot {
 
 export const DEFAULT_SETTINGS: UserSettings = {
   mode: 'cycle',
+  birthControlMode: false,
   defaultCycleLength: 28,
   defaultPeriodLength: 5,
   lutealLength: 14,
@@ -213,12 +251,26 @@ export const DEFAULT_SETTINGS: UserSettings = {
   pregnancyLmpDate: null,
   pregnancyDueDate: null,
   disguiseMode: false,
+  customSymptoms: [],
+  customMoods: [],
+  pillPack: {
+    enabled: false,
+    regimen: '21_7',
+    packStartDate: null,
+    reminderTime: '21:00',
+    takenDates: [],
+    larcType: '',
+    larcRenewalDate: null,
+  },
+  activeHygieneTimer: null,
   reminders: {
     periodEnabled: true,
     periodBeforeDays: 2,
+    pmsEnabled: true,
     fertileEnabled: true,
     dailyLogEnabled: false,
     dailyLogTime: '20:00',
+    customNotificationText: '',
   },
 };
 
@@ -227,9 +279,12 @@ export function createEmptyLog(date: string): DailyLog {
     date,
     flow: 'none',
     symptoms: [],
+    customSymptoms: [],
     moods: [],
+    customMoods: [],
     mucus: 'none',
     lhTest: 'none',
+    hygieneChanges: [],
     notes: '',
   };
 }
@@ -241,6 +296,9 @@ export function createInitialData(): LunaData {
     logs: {},
     settings: {
       ...DEFAULT_SETTINGS,
+      customSymptoms: [],
+      customMoods: [],
+      pillPack: { ...DEFAULT_SETTINGS.pillPack, takenDates: [] },
       reminders: { ...DEFAULT_SETTINGS.reminders },
     },
   };

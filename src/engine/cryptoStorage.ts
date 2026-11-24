@@ -171,6 +171,16 @@ export function sanitizeLunaData(raw: Partial<LunaData> | null | undefined): Lun
   const settings = {
     ...DEFAULT_SETTINGS,
     ...(raw.settings ?? {}),
+    customSymptoms: Array.isArray(raw.settings?.customSymptoms) ? raw.settings.customSymptoms : [],
+    customMoods: Array.isArray(raw.settings?.customMoods) ? raw.settings.customMoods : [],
+    pillPack: {
+      ...DEFAULT_SETTINGS.pillPack,
+      ...(raw.settings?.pillPack ?? {}),
+      takenDates: Array.isArray(raw.settings?.pillPack?.takenDates)
+        ? raw.settings.pillPack.takenDates
+        : [],
+    },
+    activeHygieneTimer: raw.settings?.activeHygieneTimer ?? null,
     reminders: {
       ...DEFAULT_SETTINGS.reminders,
       ...(raw.settings?.reminders ?? {}),
@@ -185,13 +195,16 @@ export function sanitizeLunaData(raw: Partial<LunaData> | null | undefined): Lun
         date: key,
         flow: entry.flow ?? 'none',
         symptoms: Array.isArray(entry.symptoms) ? entry.symptoms : [],
+        customSymptoms: Array.isArray(entry.customSymptoms) ? entry.customSymptoms : [],
         moods: Array.isArray(entry.moods) ? entry.moods : [],
+        customMoods: Array.isArray(entry.customMoods) ? entry.customMoods : [],
         mucus: entry.mucus ?? 'none',
         lhTest: entry.lhTest ?? 'none',
         bbtC: typeof entry.bbtC === 'number' ? entry.bbtC : undefined,
         sleepHours: typeof entry.sleepHours === 'number' ? entry.sleepHours : undefined,
         waterGlasses: typeof entry.waterGlasses === 'number' ? entry.waterGlasses : undefined,
         sexLogged: Boolean(entry.sexLogged),
+        hygieneChanges: Array.isArray(entry.hygieneChanges) ? entry.hygieneChanges : [],
         notes: typeof entry.notes === 'string' ? entry.notes : '',
       };
     }

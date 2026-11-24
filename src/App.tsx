@@ -44,6 +44,11 @@ import {
   openDoctorPdfReport,
   parseImportedBackup,
 } from './engine/exportReport';
+import { createHygieneTimer, getProductMeta } from './engine/hygieneTimer';
+import {
+  scheduleNativeHygieneNotification,
+  syncNativeScheduledNotifications,
+} from './engine/nativeNotifications';
 import {
   applyOtaUpdateNow,
   checkForOtaUpdate,
@@ -70,6 +75,7 @@ import type {
   PartnerSnapshot,
   PartnerWatchConfig,
   PinLockConfig,
+  SanitaryProductType,
   UserSettings,
 } from './types';
 import { createEmptyLog, createInitialData } from './types';
@@ -346,6 +352,12 @@ export function App() {
     };
   }, [ready, locked, partnerWatchConfig?.code, partnerWatchConfig?.pinHash, partnerWatchConfig?.syncServerUrl, partnerWatchConfig?.alertsOnThisPhone, today, data.settings.disguiseMode]);
 
+  // Sync native Android OS notifications whenever logs/settings/summary change inside the APK
+  useEffect(() => {
+    if (!ready || locked) return;
+    void syncNativeScheduledNotifications(data, summary);
+  }, [ready, locked, data, summary]);
+
   // Dispatch gentle local notification once per day for own reminders
   useEffect(() => {
     if (!ready || locked || activeReminders.length === 0) return;
@@ -441,11 +453,100 @@ export function App() {
     const nextSettings: UserSettings = {
       ...data.settings,
       ...patch,
+      pillPack: patch.pillPack
+        ? { ...data.settings.pillPack, ...patch.pillPack }
+        : data.settings.pillPack,
       reminders: patch.reminders
         ? { ...data.settings.reminders, ...patch.reminders }
         : data.settings.reminders,
     };
     void persistData({ ...data, settings: nextSettings });
+  };
+
+  const handleStartHygieneTimer = (product: SanitaryProductType) => {
+    const timer = createHygieneTimer(product);
+    handleUpdateSettings({ activeHygieneTimer: timer });
+    void scheduleNativeHygieneNotification(
+      timer,
+      data.settings.disguiseMode,
+      data.settings.reminders.customNotificationText,
+    );
+    showToast(`Started ${timer.durationHours}h ${product} timer.`);
+  };
+
+  const handleLogHygieneChange = (restart: boolean) => {
+    const active = data.settings.activeHygieneTimer;
+    if (!active) return;
+    const meta = getProductMeta(active.product);
+    const existing = data.logs[today] ?? createEmptyLog(today);
+    const nextChanges = [
+      ...(existing.hygieneChanges ?? []),
+      {
+        product: active.product,
+        changedAt: new Date().toISOString(),
+        estimatedMl: meta.estimatedMl,
+      },
+    ];
+    const nextTimer = restart ? createHygieneTimer(active.product, active.durationHours) : null;
+    const nextData: LunaData = {
+      ...data,
+      logs: {
+        ...data.logs,
+        [today]: { ...existing, hygieneChanges: nextChanges },
+      },
+      settings: {
+        ...data.settings,
+        activeHygieneTimer: nextTimer,
+      },
+    };
+    void persistData(nextData);
+    void scheduleNativeHygieneNotification(
+      nextTimer,
+      data.settings.disguiseMode,
+      data.settings.reminders.customNotificationText,
+    );
+    showToast(
+      restart
+        ? `Logged ~${meta.estimatedMl} mL change and restarted ${active.durationHours}h timer.`
+        : `Logged ~${meta.estimatedMl} mL change.`,
+    );
+  };
+
+  const handleStopHygieneTimer = () => {
+    handleUpdateSettings({ activeHygieneTimer: null });
+    void scheduleNativeHygieneNotification(null, data.settings.disguiseMode, '');
+    showToast('Hygiene timer stopped.');
+  };
+
+  const handleTogglePillDate = (date: string) => {
+    const current = data.settings.pillPack.takenDates;
+    const exists = current.includes(date);
+    const nextTaken = exists ? current.filter((d) => d !== date) : [...current, date];
+    handleUpdateSettings({
+      pillPack: {
+        ...data.settings.pillPack,
+        takenDates: nextTaken,
+      },
+    });
+    if (date === today) {
+      showToast(exists ? 'Unmarked pill for today.' : 'Marked today’s pill taken.');
+    }
+  };
+
+  const handleAddCustomSymptom = (label: string) => {
+    const trimmed = label.trim();
+    if (!trimmed || data.settings.customSymptoms.includes(trimmed)) return;
+    handleUpdateSettings({
+      customSymptoms: [...data.settings.customSymptoms, trimmed],
+    });
+  };
+
+  const handleAddCustomMood = (label: string) => {
+    const trimmed = label.trim();
+    if (!trimmed || data.settings.customMoods.includes(trimmed)) return;
+    handleUpdateSettings({
+      customMoods: [...data.settings.customMoods, trimmed],
+    });
   };
 
   const handleSetPin = async (pin: string) => {
@@ -624,6 +725,10 @@ export function App() {
               setCalendarEditInit(true);
               setActiveTab('calendar');
             }}
+            onStartHygieneTimer={handleStartHygieneTimer}
+            onLogHygieneChange={handleLogHygieneChange}
+            onStopHygieneTimer={handleStopHygieneTimer}
+            onTogglePillDate={handleTogglePillDate}
           />
         ) : null}
 
@@ -756,6 +861,10 @@ export function App() {
         existingLog={logDialogDate ? data.logs[logDialogDate] : undefined}
         tempUnit={data.settings.tempUnit}
         mode={data.settings.mode}
+        customSymptoms={data.settings.customSymptoms}
+        customMoods={data.settings.customMoods}
+        onAddCustomSymptom={handleAddCustomSymptom}
+        onAddCustomMood={handleAddCustomMood}
         onSave={handleSaveLog}
         onDelete={handleDeleteLog}
         onClose={() => setLogDialogDate(null)}

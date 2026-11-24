@@ -41,10 +41,27 @@ export function computeActiveReminders(
               : `Period predicted in ${summary.daysUntilNextPeriod} ${summary.daysUntilNextPeriod === 1 ? 'day' : 'days'}`,
           body: `Expected around ${formatShortDate(summary.nextPeriodDate)}.`,
         });
+      } else if (
+        reminders.pmsEnabled &&
+        summary.daysUntilNextPeriod !== null &&
+        summary.daysUntilNextPeriod > reminders.periodBeforeDays &&
+        summary.daysUntilNextPeriod <= 5
+      ) {
+        alerts.push({
+          id: 'pms-window',
+          tone: 'gentle',
+          title: `PMS window (${summary.daysUntilNextPeriod} days before period)`,
+          body: 'Late-luteal dips in energy or mood are common — prioritize steady meals and rest.',
+        });
       }
     }
 
-    if (reminders.fertileEnabled && summary.fertileStartDate && summary.ovulationDate) {
+    if (
+      !data.settings.birthControlMode &&
+      reminders.fertileEnabled &&
+      summary.fertileStartDate &&
+      summary.ovulationDate
+    ) {
       const daysToFertile = daysBetween(summary.today, summary.fertileStartDate);
       if (summary.phase === 'ovulation') {
         alerts.push({

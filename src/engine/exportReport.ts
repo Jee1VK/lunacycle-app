@@ -95,23 +95,36 @@ export function exportCsvLogs(data: LunaData, today: string): void {
     `BBT (${data.settings.tempUnit})`,
     'Sleep (hrs)',
     'Water (glasses)',
+    'Estimated Flow (mL)',
     'Notes',
   ];
 
   const sortedLogs = Object.values(data.logs).sort((a, b) => compareDates(a.date, b.date));
 
-  const rows = sortedLogs.map((log) => [
-    log.date,
-    FLOW_LABEL_MAP[log.flow],
-    log.symptoms.map((s) => SYMPTOM_LABEL_MAP[s]).join('; '),
-    log.moods.map((m) => MOOD_LABEL_MAP[m]).join('; '),
-    log.mucus === 'none' ? '' : log.mucus,
-    log.lhTest === 'none' ? '' : log.lhTest,
-    typeof log.bbtC === 'number' ? formatTemp(log.bbtC, data.settings.tempUnit) : '',
-    typeof log.sleepHours === 'number' ? String(log.sleepHours) : '',
-    typeof log.waterGlasses === 'number' ? String(log.waterGlasses) : '',
-    log.notes,
-  ]);
+  const rows = sortedLogs.map((log) => {
+    const allSymptoms = [
+      ...log.symptoms.map((s) => SYMPTOM_LABEL_MAP[s]),
+      ...(log.customSymptoms ?? []),
+    ];
+    const allMoods = [
+      ...log.moods.map((m) => MOOD_LABEL_MAP[m]),
+      ...(log.customMoods ?? []),
+    ];
+    const estMl = (log.hygieneChanges ?? []).reduce((sum, h) => sum + h.estimatedMl, 0);
+    return [
+      log.date,
+      FLOW_LABEL_MAP[log.flow],
+      allSymptoms.join('; '),
+      allMoods.join('; '),
+      log.mucus === 'none' ? '' : log.mucus,
+      log.lhTest === 'none' ? '' : log.lhTest,
+      typeof log.bbtC === 'number' ? formatTemp(log.bbtC, data.settings.tempUnit) : '',
+      typeof log.sleepHours === 'number' ? String(log.sleepHours) : '',
+      typeof log.waterGlasses === 'number' ? String(log.waterGlasses) : '',
+      estMl > 0 ? String(estMl) : '',
+      log.notes,
+    ];
+  });
 
   const csv = [
     headers.map(escapeCsvCell).join(','),

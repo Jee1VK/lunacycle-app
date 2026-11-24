@@ -19,6 +19,10 @@ interface DailyLogDialogProps {
   existingLog?: DailyLog;
   tempUnit: 'C' | 'F';
   mode: TrackingMode;
+  customSymptoms: string[];
+  customMoods: string[];
+  onAddCustomSymptom: (label: string) => void;
+  onAddCustomMood: (label: string) => void;
   onSave: (log: DailyLog) => void;
   onDelete: (date: string) => void;
   onClose: () => void;
@@ -30,6 +34,10 @@ export function DailyLogDialog({
   existingLog,
   tempUnit,
   mode,
+  customSymptoms,
+  customMoods,
+  onAddCustomSymptom,
+  onAddCustomMood,
   onSave,
   onDelete,
   onClose,
@@ -40,6 +48,8 @@ export function DailyLogDialog({
   const [bbtInput, setBbtInput] = useState('');
   const [sleepInput, setSleepInput] = useState('');
   const [waterInput, setWaterInput] = useState('');
+  const [newSymptomText, setNewSymptomText] = useState('');
+  const [newMoodText, setNewMoodText] = useState('');
 
   useEffect(() => {
     if (!open || !date) return;
@@ -47,10 +57,14 @@ export function DailyLogDialog({
       ? {
           ...existingLog,
           symptoms: [...existingLog.symptoms],
+          customSymptoms: [...(existingLog.customSymptoms ?? [])],
           moods: [...existingLog.moods],
+          customMoods: [...(existingLog.customMoods ?? [])],
         }
       : createEmptyLog(date);
     setDraft(base);
+    setNewSymptomText('');
+    setNewMoodText('');
 
     if (typeof base.bbtC === 'number') {
       setBbtInput(
@@ -72,6 +86,18 @@ export function DailyLogDialog({
     }));
   };
 
+  const toggleCustomSymptom = (label: string) => {
+    setDraft((prev) => {
+      const current = prev.customSymptoms ?? [];
+      return {
+        ...prev,
+        customSymptoms: current.includes(label)
+          ? current.filter((s) => s !== label)
+          : [...current, label],
+      };
+    });
+  };
+
   const toggleMood = (id: MoodId) => {
     setDraft((prev) => ({
       ...prev,
@@ -79,6 +105,18 @@ export function DailyLogDialog({
         ? prev.moods.filter((m) => m !== id)
         : [...prev.moods, id],
     }));
+  };
+
+  const toggleCustomMood = (label: string) => {
+    setDraft((prev) => {
+      const current = prev.customMoods ?? [];
+      return {
+        ...prev,
+        customMoods: current.includes(label)
+          ? current.filter((m) => m !== label)
+          : [...current, label],
+      };
+    });
   };
 
   const handleSave = () => {
@@ -180,6 +218,43 @@ export function DailyLogDialog({
               {opt.label}
             </button>
           ))}
+          {customSymptoms.map((label) => (
+            <button
+              key={`cs-${label}`}
+              type="button"
+              className="chip"
+              aria-pressed={(draft.customSymptoms ?? []).includes(label)}
+              onClick={() => toggleCustomSymptom(label)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+          <input
+            type="text"
+            className="input-control"
+            style={{ minHeight: 40, fontSize: '0.84rem' }}
+            placeholder="Add custom symptom (e.g. Migraine aura)"
+            value={newSymptomText}
+            onChange={(e) => setNewSymptomText(e.target.value)}
+          />
+          <button
+            type="button"
+            className="btn-secondary"
+            style={{ minHeight: 40, padding: '0 12px', fontSize: '0.82rem', flexShrink: 0 }}
+            onClick={() => {
+              const trimmed = newSymptomText.trim();
+              if (!trimmed) return;
+              onAddCustomSymptom(trimmed);
+              if (!(draft.customSymptoms ?? []).includes(trimmed)) {
+                toggleCustomSymptom(trimmed);
+              }
+              setNewSymptomText('');
+            }}
+          >
+            + Add
+          </button>
         </div>
       </section>
 
@@ -198,6 +273,43 @@ export function DailyLogDialog({
               {opt.label}
             </button>
           ))}
+          {customMoods.map((label) => (
+            <button
+              key={`cm-${label}`}
+              type="button"
+              className="chip chip--sage"
+              aria-pressed={(draft.customMoods ?? []).includes(label)}
+              onClick={() => toggleCustomMood(label)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+          <input
+            type="text"
+            className="input-control"
+            style={{ minHeight: 40, fontSize: '0.84rem' }}
+            placeholder="Add custom mood (e.g. Focused)"
+            value={newMoodText}
+            onChange={(e) => setNewMoodText(e.target.value)}
+          />
+          <button
+            type="button"
+            className="btn-secondary"
+            style={{ minHeight: 40, padding: '0 12px', fontSize: '0.82rem', flexShrink: 0 }}
+            onClick={() => {
+              const trimmed = newMoodText.trim();
+              if (!trimmed) return;
+              onAddCustomMood(trimmed);
+              if (!(draft.customMoods ?? []).includes(trimmed)) {
+                toggleCustomMood(trimmed);
+              }
+              setNewMoodText('');
+            }}
+          >
+            + Add
+          </button>
         </div>
       </section>
 
