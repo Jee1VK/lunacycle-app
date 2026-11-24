@@ -361,15 +361,19 @@ export function classifyDate(
   const periodLen = stats.averagePeriodLength;
   const lutealLen = settings.lutealLength;
 
+  const hideFertility = settings.birthControlMode || settings.simpleMode;
+
   if (!isAfterLastLoggedPeriod && nextCycleStart) {
     const cycleDay = daysBetween(cycleStart, date) + 1;
     const ovDate = getCycleOvulationDate(logs, cycleStart, nextCycleStart, lutealLen);
     const fertileStart = addDays(ovDate, -5);
     const fertileEnd = addDays(ovDate, 1);
 
-    const isOvulation = compareDates(date, ovDate) === 0;
+    const isOvulation = !hideFertility && compareDates(date, ovDate) === 0;
     const isFertile =
-      compareDates(date, fertileStart) >= 0 && compareDates(date, fertileEnd) <= 0;
+      !hideFertility &&
+      compareDates(date, fertileStart) >= 0 &&
+      compareDates(date, fertileEnd) <= 0;
 
     let phase: CyclePhase = 'follicular';
     if (isOvulation) phase = 'ovulation';
@@ -435,9 +439,9 @@ export function classifyDate(
   const fertileEnd = addDays(ovDate, 1);
 
   const isOvulation =
-    !settings.birthControlMode && !isPredictedPeriod && compareDates(date, ovDate) === 0;
+    !hideFertility && !isPredictedPeriod && compareDates(date, ovDate) === 0;
   const isFertile =
-    !settings.birthControlMode &&
+    !hideFertility &&
     !isPredictedPeriod &&
     compareDates(date, fertileStart) >= 0 &&
     compareDates(date, fertileEnd) <= 0;

@@ -175,26 +175,30 @@ export function CalendarView({
             />
             Predicted period
           </span>
-          <span className="legend-item">
-            <span
-              className="legend-swatch"
-              style={{
-                background: 'var(--color-brand-secondary-soft)',
-                border: '1px solid var(--color-brand-secondary)',
-              }}
-            />
-            Fertile window
-          </span>
-          <span className="legend-item">
-            <span
-              className="legend-swatch"
-              style={{
-                background: 'var(--color-brand-accent-soft)',
-                border: '1.5px solid var(--color-brand-accent)',
-              }}
-            />
-            Ovulation
-          </span>
+          {!data.settings.birthControlMode && !data.settings.simpleMode ? (
+            <>
+              <span className="legend-item">
+                <span
+                  className="legend-swatch"
+                  style={{
+                    background: 'var(--color-brand-secondary-soft)',
+                    border: '1px solid var(--color-brand-secondary)',
+                  }}
+                />
+                Fertile window
+              </span>
+              <span className="legend-item">
+                <span
+                  className="legend-swatch"
+                  style={{
+                    background: 'var(--color-brand-accent-soft)',
+                    border: '1.5px solid var(--color-brand-accent)',
+                  }}
+                />
+                Ovulation
+              </span>
+            </>
+          ) : null}
           <span className="legend-item">
             <span
               style={{
@@ -240,12 +244,12 @@ export function CalendarView({
                   Flow: {FLOW_LABEL_MAP[selectedLog.flow]}
                 </span>
               ) : null}
-              {selectedLog.lhTest !== 'none' ? (
+              {!data.settings.simpleMode && selectedLog.lhTest !== 'none' ? (
                 <span className="phase-badge phase-badge--ovulation">
                   LH: {selectedLog.lhTest}
                 </span>
               ) : null}
-              {selectedLog.mucus !== 'none' ? (
+              {!data.settings.simpleMode && selectedLog.mucus !== 'none' ? (
                 <span className="phase-badge phase-badge--fertile">
                   Mucus: {selectedLog.mucus.replace('_', ' ')}
                 </span>
@@ -255,14 +259,30 @@ export function CalendarView({
                   BBT: {formatTemp(selectedLog.bbtC, data.settings.tempUnit)}
                 </span>
               ) : null}
+              {(selectedLog.hygieneChanges?.length ?? 0) > 0 ? (
+                <span className="phase-badge phase-badge--menstrual tabular">
+                  ~
+                  {selectedLog.hygieneChanges!.reduce((s, h) => s + h.estimatedMl, 0)} mL
+                </span>
+              ) : null}
               {selectedLog.symptoms.map((s) => (
                 <span key={s} className="phase-badge phase-badge--follicular">
                   {SYMPTOM_LABEL_MAP[s]}
                 </span>
               ))}
+              {(selectedLog.customSymptoms ?? []).map((s) => (
+                <span key={`cs-${s}`} className="phase-badge phase-badge--follicular">
+                  {s}
+                </span>
+              ))}
               {selectedLog.moods.map((m) => (
                 <span key={m} className="phase-badge phase-badge--fertile">
                   {MOOD_LABEL_MAP[m]}
+                </span>
+              ))}
+              {(selectedLog.customMoods ?? []).map((m) => (
+                <span key={`cm-${m}`} className="phase-badge phase-badge--fertile">
+                  {m}
                 </span>
               ))}
             </div>

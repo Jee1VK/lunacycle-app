@@ -175,6 +175,21 @@ export function openDoctorPdfReport(
     )
     .join('');
 
+  const customSymptomCounts: Record<string, number> = {};
+  let totalEstimatedMl = 0;
+  for (const log of Object.values(data.logs)) {
+    for (const cs of log.customSymptoms ?? []) {
+      customSymptomCounts[cs] = (customSymptomCounts[cs] ?? 0) + 1;
+    }
+    for (const h of log.hygieneChanges ?? []) {
+      totalEstimatedMl += h.estimatedMl;
+    }
+  }
+  const customSymptomSummary = Object.entries(customSymptomCounts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([name, cnt]) => `${escapeHtml(name)} (${cnt}x)`)
+    .join(', ');
+
   const bbtSummary =
     bbtLogs.length > 0
       ? bbtLogs
@@ -353,6 +368,16 @@ export function openDoctorPdfReport(
 
   <h2>Recent Basal Body Temperature (BBT)</h2>
   <div class="box">${bbtSummary}</div>
+
+  ${
+    customSymptomSummary || totalEstimatedMl > 0
+      ? `<h2>Custom Symptoms &amp; Flow Volume</h2>
+  <div class="box">
+    ${customSymptomSummary ? `<div><strong>Custom Symptoms Logged:</strong> ${customSymptomSummary}</div>` : ''}
+    ${totalEstimatedMl > 0 ? `<div><strong>Total Estimated Flow Logged (Hygiene Timer):</strong> ~${totalEstimatedMl} mL</div>` : ''}
+  </div>`
+      : ''
+  }
 
   <div class="disclaimer">
     Note: This summary is compiled strictly from self-logged personal observations on the user's device. It is intended to assist clinical conversations and is not a medical diagnosis or contraceptive method.

@@ -162,19 +162,21 @@ export function TodayView({
                   strokeLinecap="round"
                   strokeDasharray={`${periodArc} ${circumference}`}
                 />
-                {/* Fertile Window Segment */}
-                <circle
-                  cx="116"
-                  cy="116"
-                  r={r}
-                  fill="none"
-                  stroke="var(--color-brand-secondary)"
-                  strokeWidth="14"
-                  strokeLinecap="round"
-                  strokeDasharray={`${fertileArc} ${circumference}`}
-                  strokeDashoffset={-fertileStartRatio * circumference}
-                  opacity="0.85"
-                />
+                {/* Fertile Window Segment (hidden in Birth Control / Simple Mode) */}
+                {!data.settings.birthControlMode && !data.settings.simpleMode ? (
+                  <circle
+                    cx="116"
+                    cy="116"
+                    r={r}
+                    fill="none"
+                    stroke="var(--color-brand-secondary)"
+                    strokeWidth="14"
+                    strokeLinecap="round"
+                    strokeDasharray={`${fertileArc} ${circumference}`}
+                    strokeDashoffset={-fertileStartRatio * circumference}
+                    opacity="0.85"
+                  />
+                ) : null}
                 {/* Current Day Indicator Dot */}
                 {summary.cycleDay ? (
                   <circle
@@ -461,9 +463,9 @@ export function TodayView({
       <section className="card" aria-label="Recent 7 days">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
           <h3 className="section-title" style={{ margin: 0 }}>
-            This Week
+            {t.thisWeek}
           </h3>
-          <span className="section-caption">Tap any day to log</span>
+          <span className="section-caption">{t.tapAnyDay}</span>
         </div>
         <div className="week-strip">
           {weekDates.map((iso) => {

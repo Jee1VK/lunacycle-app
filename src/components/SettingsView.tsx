@@ -181,12 +181,12 @@ export function SettingsView({
 
         <div className="field-group" style={{ marginBottom: 12 }}>
           <span className="field-label">Language</span>
-          <div className="segmented" role="group" aria-label="App language">
+          <div className="chip-group" role="group" aria-label="App language">
             {LANGUAGE_OPTIONS.map((lang) => (
               <button
                 key={lang.id}
                 type="button"
-                className="segmented-btn"
+                className="chip"
                 aria-pressed={settings.language === lang.id}
                 onClick={() => onUpdateSettings({ language: lang.id })}
               >
@@ -218,7 +218,8 @@ export function SettingsView({
         </label>
       </section>
 
-      {/* Tracking Mode */}
+      {/* Tracking Mode (hidden in Simple / Teen Mode) */}
+      {!settings.simpleMode ? (
       <section className="card">
         <h2 className="section-title">Tracking Mode</h2>
         <p className="section-caption" style={{ marginBottom: 12 }}>
@@ -280,6 +281,7 @@ export function SettingsView({
           </div>
         ) : null}
       </section>
+      ) : null}
 
       {/* Cycle Baselines */}
       <section className="card">

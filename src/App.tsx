@@ -36,6 +36,7 @@ import {
   computeCycleStats,
   computePhaseSymptomInsights,
   computeTodaySummary,
+  hasNonFlowLogDetails,
   isActiveBleedingFlow,
 } from './engine/cycleEngine';
 import {
@@ -392,17 +393,7 @@ export function App() {
   };
 
   const handleSaveLog = (log: DailyLog) => {
-    const isEmpty =
-      log.flow === 'none' &&
-      log.symptoms.length === 0 &&
-      log.moods.length === 0 &&
-      log.mucus === 'none' &&
-      log.lhTest === 'none' &&
-      log.bbtC === undefined &&
-      log.sleepHours === undefined &&
-      log.waterGlasses === undefined &&
-      !log.sexLogged &&
-      log.notes.trim() === '';
+    const isEmpty = log.flow === 'none' && !hasNonFlowLogDetails(log);
 
     const nextLogs = { ...data.logs };
     if (isEmpty) {
@@ -431,17 +422,7 @@ export function App() {
       : { ...createEmptyLog(date), flow: nextFlow };
 
     const nextLogs = { ...data.logs };
-    const isNowEmpty =
-      updatedLog.flow === 'none' &&
-      updatedLog.symptoms.length === 0 &&
-      updatedLog.moods.length === 0 &&
-      updatedLog.mucus === 'none' &&
-      updatedLog.lhTest === 'none' &&
-      updatedLog.bbtC === undefined &&
-      updatedLog.sleepHours === undefined &&
-      updatedLog.waterGlasses === undefined &&
-      !updatedLog.sexLogged &&
-      updatedLog.notes.trim() === '';
+    const isNowEmpty = updatedLog.flow === 'none' && !hasNonFlowLogDetails(updatedLog);
 
     if (isNowEmpty) {
       delete nextLogs[date];
@@ -699,7 +680,7 @@ export function App() {
               title="All health data stays strictly on this device unless you opt in to Partner Sync"
             >
               <ShieldCheck size={13} />
-              On-device
+              {t.onDevice}
             </span>
           )}
         </div>

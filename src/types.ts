@@ -95,7 +95,7 @@ export interface ReminderSettings {
 }
 
 export type ThemePreference = 'system' | 'light' | 'dark';
-export type AppLanguage = 'en' | 'kn' | 'hi';
+export type AppLanguage = 'en' | 'kn' | 'hi' | 'ta' | 'te';
 
 export interface UserSettings {
   mode: TrackingMode;
