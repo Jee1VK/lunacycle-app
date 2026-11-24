@@ -1,12 +1,14 @@
 import { Activity, FileText, Thermometer } from 'lucide-react';
 import { SYMPTOM_LABEL_MAP } from '../engine/catalog';
 import {
+  classifyDate,
   computeBbtCoverline,
   computePhaseSymptomInsights,
   formatTemp,
 } from '../engine/cycleEngine';
 import { compareDates, formatShortDate } from '../engine/temporal';
 import type { CycleStats, LunaData } from '../types';
+import { ArticleShelf } from './PartnerDiscoverSection';
 
 interface InsightsViewProps {
   data: LunaData;
@@ -22,6 +24,7 @@ export function InsightsView({
   onExportDoctorPdf,
 }: InsightsViewProps) {
   const phaseInsights = computePhaseSymptomInsights(data.logs, stats, data.settings, today);
+  const currentPhase = classifyDate(today, data.logs, stats, data.settings, today).phase;
 
   // Recent completed cycles for bar chart (oldest -> newest, up to 8)
   const completedPeriods = stats.periods
@@ -318,6 +321,13 @@ export function InsightsView({
           </p>
         )}
       </section>
+
+      {/* Phase-Matched Offline Cycle & Wellness Articles */}
+      <ArticleShelf
+        heading="Based on your current cycle"
+        phase={currentPhase}
+        excludeLibido={data.settings.simpleMode}
+      />
 
       {/* Full Period History */}
       <section className="card">

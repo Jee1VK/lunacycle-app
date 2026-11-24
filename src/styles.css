@@ -1125,6 +1125,200 @@ dialog.luna-dialog::backdrop {
   padding: 4px 8px 8px;
 }
 
+/* Horizontal Discover Stories & Article Carousels */
+.h-scroll {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+}
+
+.h-scroll::-webkit-scrollbar {
+  height: 5px;
+}
+
+.h-scroll::-webkit-scrollbar-thumb {
+  background: var(--color-border-subtle);
+  border-radius: 9999px;
+}
+
+.story-card {
+  flex: 0 0 132px;
+  min-height: 146px;
+  scroll-snap-align: start;
+  border-radius: 14px;
+  border: 2px solid var(--color-brand-accent);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  text-align: left;
+  position: relative;
+  overflow: hidden;
+  transition: transform 160ms var(--ease-out), box-shadow 160ms ease;
+}
+
+.story-card:active {
+  transform: scale(0.96);
+}
+
+.story-card--maroon {
+  background: linear-gradient(155deg, #6B1D2F 0%, #3E0F1A 100%);
+  color: #FFFFFF;
+}
+
+.story-card--sand {
+  background: linear-gradient(155deg, #F3EFEA 0%, #E7DEC9 100%);
+  color: #1C1917;
+}
+
+.story-card--forest {
+  background: linear-gradient(155deg, #1B4D3E 0%, #0F2E24 100%);
+  color: #FFFFFF;
+}
+
+.story-card--gold {
+  background: linear-gradient(155deg, #FAF4E6 0%, #ECDAB1 100%);
+  color: #1C1917;
+}
+
+.story-pill {
+  align-self: flex-end;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.92);
+  color: #1C1917;
+}
+
+.story-title {
+  font-family: var(--font-display);
+  font-size: 1.08rem;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.story-foot {
+  font-size: 0.72rem;
+  opacity: 0.85;
+  font-weight: 600;
+}
+
+/* Recommended Editorial Decoder Banner */
+.decoder-banner {
+  border-radius: 14px;
+  padding: 20px;
+  background: linear-gradient(135deg, #4A1320 0%, #6B1D2F 58%, #82283D 100%);
+  color: #FFFFFF;
+  border: 1px solid rgba(197, 160, 89, 0.4);
+  box-shadow: var(--shadow-card);
+}
+
+.decoder-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.65rem;
+  font-weight: 700;
+  line-height: 1.1;
+  color: #FFFFFF;
+}
+
+.decoder-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 0.88rem;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.decoder-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.decoder-cta {
+  min-height: 44px;
+  padding: 9px 18px;
+  border-radius: 9999px;
+  border: none;
+  background: #FAFAF7;
+  color: #6B1D2F;
+  font-weight: 700;
+  font-size: 0.88rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  transition: transform 160ms var(--ease-out), background-color 160ms ease;
+}
+
+.decoder-cta:active {
+  transform: scale(0.96);
+}
+
+/* Article Cards */
+.article-card {
+  flex: 0 0 164px;
+  scroll-snap-align: start;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 12px;
+  background: var(--color-surface-card);
+  padding: 10px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: transform 160ms var(--ease-out), border-color 160ms ease;
+}
+
+.article-card:hover {
+  border-color: var(--color-brand-accent);
+}
+
+.article-card:active {
+  transform: scale(0.97);
+}
+
+.article-card-art {
+  height: 108px;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  position: relative;
+}
+
+.article-cat-pill {
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  background: var(--color-surface-card);
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border-subtle);
+}
+
+.article-card-title {
+  font-size: 0.86rem;
+  font-weight: 700;
+  line-height: 1.28;
+  color: var(--color-text-primary);
+}
+
+.article-card-meta {
+  font-size: 0.74rem;
+  color: var(--color-text-muted);
+  margin-top: auto;
+}
+
 /* Motion Safety */
 @media (prefers-reduced-motion: reduce) {
   *,

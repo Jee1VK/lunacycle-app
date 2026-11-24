@@ -40,6 +40,7 @@ import type {
   PartnerWatchConfig,
   TodaySummary,
 } from '../types';
+import { PartnerDiscoverSection } from './PartnerDiscoverSection';
 
 interface PartnerViewProps {
   data: LunaData;
@@ -528,6 +529,14 @@ export function PartnerView({
           </p>
         ) : null}
       </section>
+
+      {/* DISCOVER STORIES, RECOMMENDED DECODER & PARTNER CYCLE ARTICLES */}
+      <PartnerDiscoverSection
+        watchedSnapshot={watchedSnapshot}
+        fallbackPhase={summary.phase}
+        today={summary.today}
+        simpleMode={data.settings.simpleMode}
+      />
 
       {/* SECTION 2: SHARE MY CYCLE PRIVATELY */}
       <section className="card" aria-label="Share my cycle privately">
