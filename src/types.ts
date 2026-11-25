@@ -55,13 +55,18 @@ export interface HygieneChangeEntry {
   estimatedMl: number;
 }
 
-export type PillRegimen = '21_7' | '28_active' | '24_4';
+export type PillRegimen = '21_7' | '28_active' | '24_4' | 'custom';
 
 export interface PillPackSettings {
   enabled: boolean;
   regimen: PillRegimen;
   packStartDate: string | null; // YYYY-MM-DD
   reminderTime: string; // HH:mm
+  alarmEnabled?: boolean;
+  totalPills?: number; // Total pills in pack/course (1..90)
+  pillsPerDay?: number; // Number of pills to take each day (1..4)
+  refillReminderEnabled?: boolean;
+  refillThresholdDays?: number; // Remind when <= N days left in pack
   takenDates: string[]; // YYYY-MM-DD[]
   larcType: string; // e.g. 'IUD', 'Implant', ''
   larcRenewalDate: string | null; // YYYY-MM-DD
@@ -273,6 +278,11 @@ export const DEFAULT_SETTINGS: UserSettings = {
     regimen: '21_7',
     packStartDate: null,
     reminderTime: '21:00',
+    alarmEnabled: true,
+    totalPills: 28,
+    pillsPerDay: 1,
+    refillReminderEnabled: true,
+    refillThresholdDays: 5,
     takenDates: [],
     larcType: '',
     larcRenewalDate: null,

@@ -52,7 +52,7 @@ import {
   openDoctorPdfReport,
   parseImportedBackup,
 } from './engine/exportReport';
-import { createHygieneTimer, getProductMeta } from './engine/hygieneTimer';
+import { computePillPackStatus, createHygieneTimer, getProductMeta } from './engine/hygieneTimer';
 import { getUiStrings } from './engine/i18n';
 import { importExternalHistory } from './engine/importers';
 import {
@@ -115,6 +115,8 @@ export function App() {
   const [calendarEditInit, setCalendarEditInit] = useState(false);
   const [logDialogDate, setLogDialogDate] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [pillAlarmActive, setPillAlarmActive] = useState(false);
+  const [pillSnoozeUntilMs, setPillSnoozeUntilMs] = useState<number | null>(null);
   const [otaState, setOtaState] = useState<OtaUpdateState>(() => ({
     currentVersion: CURRENT_APP_VERSION,
     latestVersion: null,
@@ -565,6 +567,112 @@ export function App() {
     showToast('Hygiene timer stopped.');
   };
 
+  const playGentlePillChime = () => {
+    try {
+      const AudioCtx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const notes = [523.25, 659.25, 783.99]; // C5 - E5 - G5 warm chime
+      notes.forEach((freq, idx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        const start = ctx.currentTime + idx * 0.18;
+        gain.gain.setValueAtTime(0.001, start);
+        gain.gain.exponentialRampToValueAtTime(0.16, start + 0.03);
+        gain.gain.exponentialRampToValueAtTime(0.001, start + 0.55);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(start);
+        osc.stop(start + 0.58);
+      });
+    } catch {
+      // Audio playback blocked before user gesture
+    }
+  };
+
+  // Foreground Daily Pill Alarm watcher (triggers at exact HH:mm or after 15m snooze)
+  useEffect(() => {
+    if (
+      !ready ||
+      locked ||
+      data.settings.simpleMode ||
+      !data.settings.pillPack.enabled ||
+      !(data.settings.pillPack.alarmEnabled ?? true)
+    ) {
+      setPillAlarmActive(false);
+      return;
+    }
+
+    const checkAlarm = () => {
+      const pillStatus = computePillPackStatus(data.settings.pillPack, today);
+      if (pillStatus.takenToday || pillStatus.startsInDays > 0) {
+        setPillAlarmActive(false);
+        return;
+      }
+
+      const now = new Date();
+      if (pillSnoozeUntilMs !== null) {
+        if (now.getTime() >= pillSnoozeUntilMs) {
+          setPillSnoozeUntilMs(null);
+          setPillAlarmActive(true);
+          playGentlePillChime();
+          const dose =
+            pillStatus.pillsPerDay === 1 ? '1 pill' : `${pillStatus.pillsPerDay} pills`;
+          dispatchGentleBrowserNotification(
+            'Daily Pill Alarm',
+            `Snooze ended — time to take your daily dose (${dose}).`,
+            data.settings.disguiseMode,
+          );
+        }
+        return;
+      }
+
+      const hh = String(now.getHours()).padStart(2, '0');
+      const mm = String(now.getMinutes()).padStart(2, '0');
+      if (`${hh}:${mm}` === data.settings.pillPack.reminderTime) {
+        const key = `luna_pill_alarm_${today}_${data.settings.pillPack.reminderTime}`;
+        if (!sessionStorage.getItem(key)) {
+          sessionStorage.setItem(key, '1');
+          setPillAlarmActive(true);
+          playGentlePillChime();
+          const dose =
+            pillStatus.pillsPerDay === 1 ? '1 pill' : `${pillStatus.pillsPerDay} pills`;
+          dispatchGentleBrowserNotification(
+            'Daily Pill Alarm',
+            `Time to take your daily dose (${dose}).`,
+            data.settings.disguiseMode,
+          );
+        }
+      }
+    };
+
+    checkAlarm();
+    const id = window.setInterval(checkAlarm, 15_000);
+    return () => window.clearInterval(id);
+  }, [
+    ready,
+    locked,
+    today,
+    data.settings.simpleMode,
+    data.settings.disguiseMode,
+    data.settings.pillPack,
+    pillSnoozeUntilMs,
+  ]);
+
+  const handleStartNewPillPack = () => {
+    handleUpdateSettings({
+      pillPack: {
+        ...data.settings.pillPack,
+        packStartDate: today,
+      },
+    });
+    showToast('Started a fresh pill pack from today.');
+  };
+
   const handleTogglePillDate = (date: string) => {
     const current = data.settings.pillPack.takenDates;
     const exists = current.includes(date);
@@ -576,6 +684,10 @@ export function App() {
       },
     });
     if (date === today) {
+      if (!exists) {
+        setPillAlarmActive(false);
+        setPillSnoozeUntilMs(null);
+      }
       showToast(exists ? 'Unmarked pill for today.' : 'Marked today’s pill taken.');
     }
   };
@@ -783,6 +895,51 @@ export function App() {
       </header>
 
       <main className="app-main">
+        {pillAlarmActive ? (
+          <div
+            className="reminder-item reminder-item--period"
+            role="alert"
+            style={{ flexDirection: 'column', gap: 10 }}
+          >
+            <div>
+              <p className="reminder-title">Daily Pill Alarm ({data.settings.pillPack.reminderTime})</p>
+              <p className="reminder-body">
+                Time to take your daily dose ({(data.settings.pillPack.pillsPerDay ?? 1) === 1 ? '1 pill' : `${data.settings.pillPack.pillsPerDay} pills`}).
+              </p>
+            </div>
+            <div className="btn-row" style={{ width: '100%' }}>
+              <button
+                type="button"
+                className="btn-primary"
+                style={{ minHeight: 40, padding: '8px 12px', fontSize: '0.84rem' }}
+                onClick={() => handleTogglePillDate(today)}
+              >
+                Mark Taken
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                style={{ minHeight: 40, padding: '8px 12px', fontSize: '0.84rem' }}
+                onClick={() => {
+                  setPillAlarmActive(false);
+                  setPillSnoozeUntilMs(Date.now() + 15 * 60_000);
+                  showToast('Pill alarm snoozed for 15 minutes.');
+                }}
+              >
+                Snooze 15m
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                style={{ minHeight: 40, padding: '8px 12px', fontSize: '0.84rem' }}
+                onClick={() => setPillAlarmActive(false)}
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        ) : null}
+
         {otaState.updateAvailable ? (
           <div
             className="reminder-item reminder-item--gentle"
@@ -825,6 +982,7 @@ export function App() {
             onLogHygieneChange={handleLogHygieneChange}
             onStopHygieneTimer={handleStopHygieneTimer}
             onTogglePillDate={handleTogglePillDate}
+            onStartNewPillPack={handleStartNewPillPack}
           />
         ) : null}
 
@@ -890,6 +1048,7 @@ export function App() {
             onExportDoctorPdf={handleExportDoctorPdf}
             onLoadSampleData={handleLoadSampleData}
             onEraseAllData={handleEraseAllData}
+            onTestPillAlarmChime={playGentlePillChime}
             onNotify={showToast}
           />
         ) : null}

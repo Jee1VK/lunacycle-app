@@ -13,6 +13,7 @@ import type {
   PartnerWatchConfig,
   TodaySummary,
 } from '../types';
+import { computePillPackStatus } from './hygieneTimer';
 import { buildScheduledPartnerCareAlerts } from './partnerNotifications';
 import { addDays } from './temporal';
 
@@ -20,11 +21,31 @@ const ID_PERIOD = 1001;
 const ID_DAILY_LOG = 1002;
 const ID_PILL = 1003;
 const ID_HYGIENE = 1004;
+const ID_PILL_REFILL = 1005;
+const ID_PILL_TEST = 1006;
 const ID_PARTNER_PMS = 2001;
 const ID_PARTNER_TOMORROW = 2002;
 const ID_PARTNER_FERTILE = 2003;
 const ID_PARTNER_DAILY = 2004;
 const ID_PARTNER_TEST = 2005;
+
+const PILL_ALARM_CHANNEL_ID = 'lunacycle_pill_alarm';
+
+async function ensurePillAlarmChannel(): Promise<void> {
+  if (!isNativeNotificationRuntime()) return;
+  try {
+    await LocalNotifications.createChannel({
+      id: PILL_ALARM_CHANNEL_ID,
+      name: 'Daily Pill Alarm',
+      description: 'High-priority daily pill time and refill reminders',
+      importance: 5,
+      visibility: 1,
+      vibration: true,
+    });
+  } catch {
+    // Ignore on platforms where channels are unsupported
+  }
+}
 
 export function isNativeNotificationRuntime(): boolean {
   return Capacitor.isNativePlatform();
@@ -66,14 +87,25 @@ export async function syncNativeScheduledNotifications(
     if (status.display !== 'granted') return;
 
     await LocalNotifications.cancel({
-      notifications: [{ id: ID_PERIOD }, { id: ID_DAILY_LOG }, { id: ID_PILL }],
+      notifications: [
+        { id: ID_PERIOD },
+        { id: ID_DAILY_LOG },
+        { id: ID_PILL },
+        { id: ID_PILL_REFILL },
+      ],
     });
 
     const toSchedule: Array<{
       id: number;
       title: string;
       body: string;
-      schedule: { at?: Date; on?: { hour: number; minute: number }; repeats?: boolean };
+      channelId?: string;
+      schedule: {
+        at?: Date;
+        on?: { hour: number; minute: number };
+        repeats?: boolean;
+        allowWhileIdle?: boolean;
+      };
     }> = [];
 
     const { reminders, disguiseMode, pillPack } = data.settings;
@@ -112,21 +144,57 @@ export async function syncNativeScheduledNotifications(
       }
     }
 
-    // 3. Daily Pill Reminder
-    if (pillPack.enabled) {
-      const [hour, minute] = pillPack.reminderTime.split(':').map(Number);
-      if (Number.isFinite(hour) && Number.isFinite(minute)) {
-        const msg = getSafeText(
-          disguiseMode,
-          reminders.customNotificationText,
-          'Daily Pill Reminder',
-          'Time to log your daily pill.',
+    // 3. Daily Pill Alarm & Refill Reminder
+    if (pillPack.enabled && !data.settings.simpleMode) {
+      await ensurePillAlarmChannel();
+      const pillStatus = computePillPackStatus(pillPack, summary.today);
+
+      if (pillPack.alarmEnabled ?? true) {
+        const [hour, minute] = pillPack.reminderTime.split(':').map(Number);
+        if (Number.isFinite(hour) && Number.isFinite(minute)) {
+          const doseLabel =
+            pillStatus.pillsPerDay === 1 ? '1 pill' : `${pillStatus.pillsPerDay} pills`;
+          const msg = getSafeText(
+            disguiseMode,
+            reminders.customNotificationText,
+            'Daily Pill Alarm',
+            `Time to take your daily dose (${doseLabel}).`,
+          );
+          toSchedule.push({
+            id: ID_PILL,
+            ...msg,
+            channelId: PILL_ALARM_CHANNEL_ID,
+            schedule: { on: { hour, minute }, repeats: true, allowWhileIdle: true },
+          });
+        }
+      }
+
+      if ((pillPack.refillReminderEnabled ?? true) && pillStatus.refillAlertDate) {
+        const [ry, rm, rd] = pillStatus.refillAlertDate.split('-').map(Number);
+        const [rh, rmin] = pillPack.reminderTime.split(':').map(Number);
+        const refillAt = new Date(
+          ry,
+          rm - 1,
+          rd,
+          Number.isFinite(rh) ? rh : 9,
+          Number.isFinite(rmin) ? rmin : 0,
+          0,
         );
-        toSchedule.push({
-          id: ID_PILL,
-          ...msg,
-          schedule: { on: { hour, minute }, repeats: true },
-        });
+        if (refillAt.getTime() > Date.now() + 60_000) {
+          const threshold = pillPack.refillThresholdDays ?? 5;
+          const msg = getSafeText(
+            disguiseMode,
+            reminders.customNotificationText,
+            'Pill Pack Refill Reminder',
+            `Only ${threshold} ${threshold === 1 ? 'day' : 'days'} left in your pack — remember to refill soon.`,
+          );
+          toSchedule.push({
+            id: ID_PILL_REFILL,
+            ...msg,
+            channelId: PILL_ALARM_CHANNEL_ID,
+            schedule: { at: refillAt, allowWhileIdle: true },
+          });
+        }
       }
     }
 
@@ -273,6 +341,51 @@ export async function sendTestPartnerCareNotification(
         : await Notification.requestPermission();
     if (perm === 'granted') {
       new Notification(msg.title, { body: msg.body, tag: 'lunacycle-partner-test' });
+      return true;
+    }
+  }
+  return false;
+}
+
+export async function sendTestPillAlarmNotification(
+  pillsPerDay: number,
+  disguiseMode: boolean,
+  customText: string,
+): Promise<boolean> {
+  const doseLabel = pillsPerDay === 1 ? '1 pill' : `${pillsPerDay} pills`;
+  const msg = getSafeText(
+    disguiseMode,
+    customText,
+    'Daily Pill Alarm (Test)',
+    `Time to take your daily dose (${doseLabel}).`,
+  );
+  if (isNativeNotificationRuntime()) {
+    try {
+      const granted = await requestNativeNotificationPermission();
+      if (!granted) return false;
+      await ensurePillAlarmChannel();
+      await LocalNotifications.schedule({
+        notifications: [
+          {
+            id: ID_PILL_TEST,
+            ...msg,
+            channelId: PILL_ALARM_CHANNEL_ID,
+            schedule: { at: new Date(Date.now() + 1500), allowWhileIdle: true },
+          },
+        ],
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  if (typeof window !== 'undefined' && 'Notification' in window) {
+    const perm =
+      Notification.permission === 'granted'
+        ? 'granted'
+        : await Notification.requestPermission();
+    if (perm === 'granted') {
+      new Notification(msg.title, { body: msg.body, tag: 'lunacycle-pill-test' });
       return true;
     }
   }

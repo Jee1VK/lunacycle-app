@@ -1,4 +1,5 @@
 import type { LunaData, TodaySummary } from '../types';
+import { computePillPackStatus } from './hygieneTimer';
 import { daysBetween, formatShortDate } from './temporal';
 
 export interface ActiveReminder {
@@ -102,6 +103,18 @@ export function computeActiveReminders(
         tone: 'gentle',
         title: 'Daily check-in reminder',
         body: `Scheduled for ${reminders.dailyLogTime}. Take 10 seconds to log how you feel today.`,
+      });
+    }
+  }
+
+  if (data.settings.pillPack.enabled && !data.settings.simpleMode) {
+    const pillStatus = computePillPackStatus(data.settings.pillPack, summary.today);
+    if (pillStatus.needsRefill) {
+      alerts.push({
+        id: 'pill-refill',
+        tone: 'period',
+        title: 'Pill pack refill reminder',
+        body: `Only ${pillStatus.pillsRemaining} ${pillStatus.pillsRemaining === 1 ? 'pill' : 'pills'} (${pillStatus.daysRemainingInPack} ${pillStatus.daysRemainingInPack === 1 ? 'day' : 'days'}) left in your current pack — remember to refill soon.`,
       });
     }
   }

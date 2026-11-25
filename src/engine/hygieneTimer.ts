@@ -78,29 +78,46 @@ export function computeTotalEstimatedMl(logs: Record<string, DailyLog>, dates: s
 }
 
 /**
- * Computes current pill pack day (1..28), active vs placebo/break status,
- * and consecutive daily intake streak.
+ * Computes current pill pack day (1..totalPills), active vs placebo/break status,
+ * remaining supply for refill reminders, future start dates, and consecutive daily intake streak.
  */
 export function computePillPackStatus(
   pillPack: PillPackSettings,
   today: string,
 ): {
   dayInPack: number;
+  totalPills: number;
+  pillsPerDay: number;
+  startsInDays: number;
   isBreakDay: boolean;
   takenToday: boolean;
   streak: number;
+  daysRemainingInPack: number;
+  pillsRemaining: number;
+  needsRefill: boolean;
+  refillAlertDate: string | null;
   packDates: Array<{ date: string; dayNumber: number; isBreak: boolean; taken: boolean; isToday: boolean }>;
 } {
+  const totalPills = Math.max(1, Math.min(90, Math.round(pillPack.totalPills ?? 28)));
+  const pillsPerDay = Math.max(1, Math.min(4, Math.round(pillPack.pillsPerDay ?? 1)));
   const start = pillPack.packStartDate ?? today;
-  const diff = Math.max(0, daysBetween(start, today));
-  const cycleIndex = Math.floor(diff / 28);
-  const currentPackStart = addDays(start, cycleIndex * 28);
-  const dayInPack = (diff % 28) + 1;
+  const rawDiff = daysBetween(start, today);
+  const startsInDays = rawDiff < 0 ? Math.abs(rawDiff) : 0;
+
+  const effectiveDiff = Math.max(0, rawDiff);
+  const cycleIndex = Math.floor(effectiveDiff / totalPills);
+  const currentPackStart = rawDiff < 0 ? start : addDays(start, cycleIndex * totalPills);
+  const dayInPack = rawDiff < 0 ? 0 : (effectiveDiff % totalPills) + 1;
 
   const activeDays =
-    pillPack.regimen === '21_7' ? 21 : pillPack.regimen === '24_4' ? 24 : 28;
+    pillPack.regimen === '21_7'
+      ? Math.min(21, totalPills)
+      : pillPack.regimen === '24_4'
+        ? Math.min(24, totalPills)
+        : totalPills;
+
   const takenSet = new Set(pillPack.takenDates);
-  const isBreakDay = dayInPack > activeDays;
+  const isBreakDay = dayInPack > 0 && dayInPack > activeDays;
   const takenToday = takenSet.has(today);
 
   // Consecutive streak backwards from today (or yesterday if today not yet logged)
@@ -111,7 +128,7 @@ export function computePillPackStatus(
     cursor = addDays(cursor, -1);
   }
 
-  const packDates = Array.from({ length: 28 }, (_, idx) => {
+  const packDates = Array.from({ length: totalPills }, (_, idx) => {
     const d = addDays(currentPackStart, idx);
     const dayNumber = idx + 1;
     return {
@@ -123,5 +140,34 @@ export function computePillPackStatus(
     };
   });
 
-  return { dayInPack, isBreakDay, takenToday, streak, packDates };
+  const daysRemainingInPack =
+    rawDiff < 0
+      ? totalPills
+      : Math.max(0, totalPills - dayInPack + (takenToday ? 0 : 1));
+
+  const takenInCurrentPack = packDates.filter((d) => d.taken).length;
+  const pillsRemaining = Math.max(0, (totalPills - takenInCurrentPack) * pillsPerDay);
+
+  const refillEnabled = pillPack.refillReminderEnabled ?? true;
+  const threshold = Math.max(1, Math.min(14, Math.round(pillPack.refillThresholdDays ?? 5)));
+  const needsRefill =
+    refillEnabled && startsInDays === 0 && (daysRemainingInPack <= threshold || pillsRemaining <= threshold * pillsPerDay);
+
+  const refillDayOffset = Math.max(0, totalPills - threshold);
+  const refillAlertDate = refillEnabled ? addDays(currentPackStart, refillDayOffset) : null;
+
+  return {
+    dayInPack,
+    totalPills,
+    pillsPerDay,
+    startsInDays,
+    isBreakDay,
+    takenToday,
+    streak,
+    daysRemainingInPack,
+    pillsRemaining,
+    needsRefill,
+    refillAlertDate,
+    packDates,
+  };
 }

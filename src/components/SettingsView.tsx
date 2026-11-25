@@ -19,6 +19,7 @@ import { LANGUAGE_OPTIONS } from '../engine/i18n';
 import {
   isNativeNotificationRuntime,
   requestNativeNotificationPermission,
+  sendTestPillAlarmNotification,
 } from '../engine/nativeNotifications';
 import type { OtaUpdateState } from '../engine/otaUpdater';
 import { addDays } from '../engine/temporal';
@@ -49,6 +50,7 @@ interface SettingsViewProps {
   onExportDoctorPdf: () => void;
   onLoadSampleData: () => void;
   onEraseAllData: () => Promise<void>;
+  onTestPillAlarmChime?: () => void;
   onNotify: (msg: string) => void;
 }
 
@@ -72,6 +74,7 @@ export function SettingsView({
   onExportDoctorPdf,
   onLoadSampleData,
   onEraseAllData,
+  onTestPillAlarmChime,
   onNotify,
 }: SettingsViewProps) {
   const { settings } = data;
@@ -475,52 +478,254 @@ export function SettingsView({
         </label>
 
         {settings.pillPack.enabled ? (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8, marginTop: 10 }}>
-            <label className="field-group">
-              <span className="field-label">Regimen</span>
-              <select
-                className="input-control"
-                value={settings.pillPack.regimen}
-                onChange={(e) =>
-                  onUpdateSettings({
-                    pillPack: {
-                      ...settings.pillPack,
-                      regimen: e.target.value as '21_7' | '28_active' | '24_4',
-                    },
-                  })
-                }
-              >
-                <option value="21_7">21 / 7</option>
-                <option value="24_4">24 / 4</option>
-                <option value="28_active">28 Active</option>
-              </select>
-            </label>
-            <label className="field-group">
-              <span className="field-label">Pack Start</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(135px, 1fr))', gap: 10 }}>
+              <label className="field-group">
+                <span className="field-label">Regimen</span>
+                <select
+                  className="input-control"
+                  value={settings.pillPack.regimen}
+                  onChange={(e) => {
+                    const nextRegimen = e.target.value as '21_7' | '28_active' | '24_4' | 'custom';
+                    const defaultCount = nextRegimen === 'custom' ? (settings.pillPack.totalPills ?? 30) : 28;
+                    onUpdateSettings({
+                      pillPack: {
+                        ...settings.pillPack,
+                        regimen: nextRegimen,
+                        totalPills: defaultCount,
+                      },
+                    });
+                  }}
+                >
+                  <option value="21_7">21 / 7 (21 active + 7 break)</option>
+                  <option value="24_4">24 / 4 (24 active + 4 break)</option>
+                  <option value="28_active">28 Active Pills</option>
+                  <option value="custom">Custom Pill Count</option>
+                </select>
+              </label>
+
+              <label className="field-group">
+                <span className="field-label">Pack Start Date</span>
+                <input
+                  type="date"
+                  className="input-control tabular"
+                  value={settings.pillPack.packStartDate ?? today}
+                  onChange={(e) =>
+                    onUpdateSettings({
+                      pillPack: { ...settings.pillPack, packStartDate: e.target.value || today },
+                    })
+                  }
+                />
+              </label>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(135px, 1fr))', gap: 10 }}>
+              <div className="field-group">
+                <span className="field-label">Total Pills in Pack</span>
+                <div className="stepper-row">
+                  <button
+                    type="button"
+                    className="stepper-btn"
+                    aria-label="Decrease total pills in pack"
+                    onClick={() =>
+                      onUpdateSettings({
+                        pillPack: {
+                          ...settings.pillPack,
+                          totalPills: Math.max(1, (settings.pillPack.totalPills ?? 28) - 1),
+                        },
+                      })
+                    }
+                  >
+                    −
+                  </button>
+                  <span className="tabular" style={{ fontWeight: 700 }}>
+                    {settings.pillPack.totalPills ?? 28}
+                  </span>
+                  <button
+                    type="button"
+                    className="stepper-btn"
+                    aria-label="Increase total pills in pack"
+                    onClick={() =>
+                      onUpdateSettings({
+                        pillPack: {
+                          ...settings.pillPack,
+                          totalPills: Math.min(90, (settings.pillPack.totalPills ?? 28) + 1),
+                        },
+                      })
+                    }
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+
+              <div className="field-group">
+                <span className="field-label">Pills per Day</span>
+                <div className="stepper-row">
+                  <button
+                    type="button"
+                    className="stepper-btn"
+                    aria-label="Decrease pills per day"
+                    onClick={() =>
+                      onUpdateSettings({
+                        pillPack: {
+                          ...settings.pillPack,
+                          pillsPerDay: Math.max(1, (settings.pillPack.pillsPerDay ?? 1) - 1),
+                        },
+                      })
+                    }
+                  >
+                    −
+                  </button>
+                  <span className="tabular" style={{ fontWeight: 700 }}>
+                    {settings.pillPack.pillsPerDay ?? 1}
+                  </span>
+                  <button
+                    type="button"
+                    className="stepper-btn"
+                    aria-label="Increase pills per day"
+                    onClick={() =>
+                      onUpdateSettings({
+                        pillPack: {
+                          ...settings.pillPack,
+                          pillsPerDay: Math.min(4, (settings.pillPack.pillsPerDay ?? 1) + 1),
+                        },
+                      })
+                    }
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <label className="setting-row" htmlFor="pill-alarm-switch" style={{ paddingTop: 6 }}>
+              <div className="setting-label-wrap">
+                <span className="setting-title">Daily Pill Alarm &amp; Notification</span>
+                <span className="setting-desc">
+                  Rings &amp; notifies at your chosen time every day (works even when app is closed in APK)
+                </span>
+              </div>
               <input
-                type="date"
-                className="input-control tabular"
-                value={settings.pillPack.packStartDate ?? today}
-                onChange={(e) =>
+                id="pill-alarm-switch"
+                type="checkbox"
+                checked={settings.pillPack.alarmEnabled ?? true}
+                onChange={async (e) => {
+                  const enabled = e.target.checked;
                   onUpdateSettings({
-                    pillPack: { ...settings.pillPack, packStartDate: e.target.value || today },
-                  })
-                }
+                    pillPack: { ...settings.pillPack, alarmEnabled: enabled },
+                  });
+                  if (enabled) {
+                    if (isNativeNotificationRuntime()) {
+                      await requestNativeNotificationPermission();
+                    } else {
+                      await requestNotificationPermission();
+                    }
+                  }
+                }}
+                {...({ switch: '' } as Record<string, string>)}
               />
             </label>
-            <label className="field-group">
-              <span className="field-label">Pill Time</span>
+
+            {(settings.pillPack.alarmEnabled ?? true) ? (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end' }}>
+                <label className="field-group" style={{ flex: '1 1 140px' }}>
+                  <span className="field-label">Daily Alarm Time</span>
+                  <input
+                    type="time"
+                    className="input-control tabular"
+                    value={settings.pillPack.reminderTime}
+                    onChange={(e) =>
+                      onUpdateSettings({
+                        pillPack: { ...settings.pillPack, reminderTime: e.target.value || '21:00' },
+                      })
+                    }
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  style={{ minHeight: 44 }}
+                  onClick={async () => {
+                    onTestPillAlarmChime?.();
+                    const ok = await sendTestPillAlarmNotification(
+                      settings.pillPack.pillsPerDay ?? 1,
+                      settings.disguiseMode,
+                      settings.reminders.customNotificationText,
+                    );
+                    onNotify(
+                      ok
+                        ? 'Test pill alarm triggered — check your notification tray.'
+                        : 'Played in-app chime. Allow notifications on your phone for OS alerts.',
+                    );
+                  }}
+                >
+                  <Bell size={15} />
+                  Test Alarm
+                </button>
+              </div>
+            ) : null}
+
+            <label className="setting-row" htmlFor="pill-refill-switch">
+              <div className="setting-label-wrap">
+                <span className="setting-title">Refill Reminder</span>
+                <span className="setting-desc">
+                  Alerts you before your current pack runs out so you never miss a refill
+                </span>
+              </div>
               <input
-                type="time"
-                className="input-control tabular"
-                value={settings.pillPack.reminderTime}
+                id="pill-refill-switch"
+                type="checkbox"
+                checked={settings.pillPack.refillReminderEnabled ?? true}
                 onChange={(e) =>
                   onUpdateSettings({
-                    pillPack: { ...settings.pillPack, reminderTime: e.target.value || '21:00' },
+                    pillPack: { ...settings.pillPack, refillReminderEnabled: e.target.checked },
                   })
                 }
+                {...({ switch: '' } as Record<string, string>)}
               />
             </label>
+
+            {(settings.pillPack.refillReminderEnabled ?? true) ? (
+              <div className="field-group">
+                <span className="field-label">Remind to refill when this many days remain</span>
+                <div className="stepper-row" style={{ maxWidth: 180 }}>
+                  <button
+                    type="button"
+                    className="stepper-btn"
+                    aria-label="Decrease refill threshold days"
+                    onClick={() =>
+                      onUpdateSettings({
+                        pillPack: {
+                          ...settings.pillPack,
+                          refillThresholdDays: Math.max(1, (settings.pillPack.refillThresholdDays ?? 5) - 1),
+                        },
+                      })
+                    }
+                  >
+                    −
+                  </button>
+                  <span className="tabular" style={{ fontWeight: 700 }}>
+                    {settings.pillPack.refillThresholdDays ?? 5} days
+                  </span>
+                  <button
+                    type="button"
+                    className="stepper-btn"
+                    aria-label="Increase refill threshold days"
+                    onClick={() =>
+                      onUpdateSettings({
+                        pillPack: {
+                          ...settings.pillPack,
+                          refillThresholdDays: Math.min(14, (settings.pillPack.refillThresholdDays ?? 5) + 1),
+                        },
+                      })
+                    }
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </div>
         ) : null}
       </section>

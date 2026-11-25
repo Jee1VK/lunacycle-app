@@ -47,6 +47,7 @@ interface TodayViewProps {
   onLogHygieneChange: (restart: boolean) => void;
   onStopHygieneTimer: () => void;
   onTogglePillDate: (date: string) => void;
+  onStartNewPillPack: () => void;
 }
 
 export function TodayView({
@@ -62,6 +63,7 @@ export function TodayView({
   onLogHygieneChange,
   onStopHygieneTimer,
   onTogglePillDate,
+  onStartNewPillPack,
 }: TodayViewProps) {
   const [nowMs, setNowMs] = useState(() => Date.now());
   const activeTimer = data.settings.activeHygieneTimer;
@@ -406,29 +408,81 @@ export function TodayView({
       {/* Daily Pill Pack Widget (shown when enabled in Settings) */}
       {pillStatus ? (
         <section className="card" aria-label="Daily pill pack tracker">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Pill size={18} color="var(--color-brand-secondary)" />
-              <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+              <Pill size={18} color="var(--color-brand-secondary)" style={{ flexShrink: 0 }} />
+              <div style={{ minWidth: 0 }}>
                 <h3 className="section-title" style={{ margin: 0 }}>
-                  Pill Pack · Day {pillStatus.dayInPack}/28
+                  {pillStatus.startsInDays > 0
+                    ? `Pill Pack · Starts in ${pillStatus.startsInDays}d`
+                    : `Pill Pack · Day ${pillStatus.dayInPack}/${pillStatus.totalPills}`}
                 </h3>
                 <p className="section-caption">
-                  {pillStatus.isBreakDay ? 'Placebo / break week' : 'Active pill day'} · {pillStatus.streak}-day streak
+                  {pillStatus.startsInDays > 0
+                    ? `Scheduled start: ${formatShortDate(data.settings.pillPack.packStartDate ?? summary.today)}`
+                    : `${pillStatus.isBreakDay ? 'Placebo / break' : `${pillStatus.pillsPerDay} ${pillStatus.pillsPerDay === 1 ? 'pill' : 'pills'}/day`} · ${pillStatus.streak}-day streak`}
                 </p>
               </div>
             </div>
-            <button
-              type="button"
-              className={pillStatus.takenToday ? 'btn-secondary' : 'btn-primary'}
-              style={{ minHeight: 42, padding: '8px 14px', fontSize: '0.84rem' }}
-              onClick={() => onTogglePillDate(summary.today)}
-            >
-              <Check size={15} />
-              {pillStatus.takenToday ? 'Taken' : 'Mark Taken'}
-            </button>
+            {pillStatus.startsInDays === 0 ? (
+              <button
+                type="button"
+                className={pillStatus.takenToday ? 'btn-secondary' : 'btn-primary'}
+                style={{ minHeight: 42, padding: '8px 14px', fontSize: '0.84rem', flexShrink: 0 }}
+                onClick={() => onTogglePillDate(summary.today)}
+              >
+                <Check size={15} />
+                {pillStatus.takenToday ? 'Taken' : 'Mark Taken'}
+              </button>
+            ) : null}
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 5 }}>
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+            <span className="phase-badge phase-badge--follicular tabular" style={{ fontSize: '0.72rem' }}>
+              <Bell size={12} />
+              {(data.settings.pillPack.alarmEnabled ?? true)
+                ? `Alarm ${data.settings.pillPack.reminderTime}`
+                : 'Alarm off'}
+            </span>
+            <span
+              className={`phase-badge tabular ${pillStatus.needsRefill ? 'phase-badge--menstrual' : 'phase-badge--fertile'}`}
+              style={{ fontSize: '0.72rem' }}
+            >
+              {pillStatus.pillsRemaining} {pillStatus.pillsRemaining === 1 ? 'pill' : 'pills'} left
+            </span>
+          </div>
+
+          {pillStatus.needsRefill ? (
+            <div
+              className="reminder-item reminder-item--period"
+              style={{ marginBottom: 10, alignItems: 'center', justifyContent: 'space-between', gap: 10 }}
+            >
+              <div>
+                <p className="reminder-title">Time to refill your pack</p>
+                <p className="reminder-body">
+                  {pillStatus.pillsRemaining} {pillStatus.pillsRemaining === 1 ? 'pill' : 'pills'} ({pillStatus.daysRemainingInPack} {pillStatus.daysRemainingInPack === 1 ? 'day' : 'days'}) remaining.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn-secondary"
+                style={{ minHeight: 38, padding: '6px 10px', fontSize: '0.78rem', flexShrink: 0 }}
+                onClick={onStartNewPillPack}
+              >
+                New Pack
+              </button>
+            </div>
+          ) : null}
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(7, 1fr)',
+              gap: 5,
+              maxHeight: pillStatus.totalPills > 35 ? 210 : undefined,
+              overflowY: pillStatus.totalPills > 35 ? 'auto' : undefined,
+            }}
+          >
             {pillStatus.packDates.map((d) => (
               <button
                 key={d.date}

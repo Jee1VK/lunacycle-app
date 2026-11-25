@@ -44,4 +44,39 @@ describe('hygieneTimer & pillPack engine', () => {
     expect(status.streak).toBe(3);
     expect(status.packDates).toHaveLength(28);
   });
+
+  it('supports custom pill counts, pills per day, future start dates, and refill reminders', () => {
+    const customPack = {
+      ...DEFAULT_SETTINGS.pillPack,
+      enabled: true,
+      regimen: 'custom' as const,
+      totalPills: 30,
+      pillsPerDay: 2,
+      packStartDate: '2026-06-01',
+      refillReminderEnabled: true,
+      refillThresholdDays: 5,
+      takenDates: Array.from({ length: 26 }, (_, i) =>
+        `2026-06-${String(i + 1).padStart(2, '0')}`,
+      ),
+    };
+
+    const nearEnd = computePillPackStatus(customPack, '2026-06-26');
+    expect(nearEnd.dayInPack).toBe(26);
+    expect(nearEnd.totalPills).toBe(30);
+    expect(nearEnd.pillsPerDay).toBe(2);
+    expect(nearEnd.daysRemainingInPack).toBe(4);
+    expect(nearEnd.pillsRemaining).toBe(8);
+    expect(nearEnd.needsRefill).toBe(true);
+    expect(nearEnd.refillAlertDate).toBe('2026-06-26');
+
+    const futurePack = {
+      ...customPack,
+      packStartDate: '2026-07-05',
+      takenDates: [],
+    };
+    const beforeStart = computePillPackStatus(futurePack, '2026-07-01');
+    expect(beforeStart.startsInDays).toBe(4);
+    expect(beforeStart.dayInPack).toBe(0);
+    expect(beforeStart.needsRefill).toBe(false);
+  });
 });
