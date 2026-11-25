@@ -1,7 +1,9 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
   classifyDate,
+  computeClinicalHealthFlags,
   computeCycleStats,
+  computePersonalSymptomForecast,
   computePregnancySummary,
   computeTodaySummary,
   extractPeriods,
@@ -129,5 +131,38 @@ describe('computePregnancySummary', () => {
     expect(preg?.days).toBe(2);
     expect(preg?.trimester).toBe(2);
     expect(preg?.daysRemaining).toBe(180);
+  });
+
+  it('computes personal predictive symptom heads-ups and clinical health flags', () => {
+    const logs: Record<string, DailyLog> = {};
+    // 3 long cycles (38 days apart) with recurring cramps 2 days before period + heavy flow
+    const starts = ['2026-01-01', '2026-02-08', '2026-03-18'];
+    for (const s of starts) {
+      for (let d = 0; d < 9; d++) {
+        const iso = addDays(s, d);
+        logs[iso] = {
+          ...createEmptyLog(iso),
+          flow: d < 4 ? 'heavy' : 'light',
+        };
+      }
+      const pre = addDays(s, -2);
+      logs[pre] = {
+        ...createEmptyLog(pre),
+        symptoms: ['cramps', 'fatigue'],
+      };
+    }
+
+    const stats = computeCycleStats(logs, DEFAULT_SETTINGS);
+    const flags = computeClinicalHealthFlags(logs, stats);
+    expect(flags.some((f) => f.id === 'long-cycles')).toBe(true);
+    expect(flags.some((f) => f.id === 'prolonged-bleeding')).toBe(true);
+    expect(flags.some((f) => f.id === 'heavy-flow')).toBe(true);
+
+    // 2 days before next predicted period (2026-03-18 + 38 = 2026-04-25 -> 2026-04-23)
+    const today = '2026-04-23';
+    const summary = computeTodaySummary(today, logs, stats, DEFAULT_SETTINGS);
+    const forecast = computePersonalSymptomForecast(logs, stats, summary);
+    expect(forecast).not.toBeNull();
+    expect(forecast?.symptoms).toContain('cramps');
   });
 });

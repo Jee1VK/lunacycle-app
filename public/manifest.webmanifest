@@ -34,5 +34,28 @@
       "type": "image/svg+xml",
       "purpose": "any"
     }
+  ],
+  "shortcuts": [
+    {
+      "name": "Log Period Today",
+      "short_name": "Log Period",
+      "description": "Quickly log or toggle today's period entry",
+      "url": "./?action=log-period",
+      "icons": [{ "src": "./icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Mark Pill Taken",
+      "short_name": "Take Pill",
+      "description": "Mark today's daily pill as taken",
+      "url": "./?action=take-pill",
+      "icons": [{ "src": "./icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Log Symptoms",
+      "short_name": "Symptoms",
+      "description": "Open today's symptoms, mood, and notes log",
+      "url": "./?action=log-symptoms",
+      "icons": [{ "src": "./icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    }
   ]
 }

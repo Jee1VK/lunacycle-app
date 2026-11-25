@@ -1,8 +1,9 @@
-import { Activity, FileText, Thermometer } from 'lucide-react';
+import { Activity, AlertCircle, FileText, Thermometer } from 'lucide-react';
 import { SYMPTOM_LABEL_MAP } from '../engine/catalog';
 import {
   classifyDate,
   computeBbtCoverline,
+  computeClinicalHealthFlags,
   computePhaseSymptomInsights,
   formatTemp,
 } from '../engine/cycleEngine';
@@ -24,6 +25,7 @@ export function InsightsView({
   onExportDoctorPdf,
 }: InsightsViewProps) {
   const phaseInsights = computePhaseSymptomInsights(data.logs, stats, data.settings, today);
+  const clinicalFlags = computeClinicalHealthFlags(data.logs, stats);
   const currentPhase = classifyDate(today, data.logs, stats, data.settings, today).phase;
 
   // Recent completed cycles for bar chart (oldest -> newest, up to 8)
@@ -99,6 +101,36 @@ export function InsightsView({
           </div>
         </div>
       </section>
+
+      {/* Clinical Pattern Flags for Doctor Visits */}
+      {clinicalFlags.length > 0 ? (
+        <section className="card" aria-label="Clinical pattern flags">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <AlertCircle size={18} color="var(--color-brand-primary)" />
+              <h2 className="section-title" style={{ margin: 0 }}>
+                Patterns to Share with a Doctor
+              </h2>
+            </div>
+          </div>
+          <p className="section-caption" style={{ marginBottom: 10 }}>
+            Informational cues from your logs — automatically included in your Doctor PDF
+          </p>
+          <div className="reminder-list">
+            {clinicalFlags.map((flag) => (
+              <div
+                key={flag.id}
+                className={`reminder-item ${flag.severity === 'attention' ? 'reminder-item--period' : 'reminder-item--gentle'}`}
+              >
+                <div>
+                  <p className="reminder-title">{flag.title}</p>
+                  <p className="reminder-body">{flag.detail}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       {/* Doctor Report Quick Action */}
       <section className="card-subtle" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>

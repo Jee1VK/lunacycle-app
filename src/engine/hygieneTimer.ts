@@ -111,7 +111,14 @@ export function computePillPackStatus(
   pillsRemaining: number;
   needsRefill: boolean;
   refillAlertDate: string | null;
-  packDates: Array<{ date: string; dayNumber: number; isBreak: boolean; taken: boolean; isToday: boolean }>;
+  packDates: Array<{
+    date: string;
+    dayNumber: number;
+    isBreak: boolean;
+    taken: boolean;
+    takenLate: boolean;
+    isToday: boolean;
+  }>;
 } {
   const defaultPackSize = pillPack.regimen === '21_only' ? 21 : 28;
   const totalPills = Math.max(
@@ -144,6 +151,7 @@ export function computePillPackStatus(
         : totalPills; // 21_only, 28_active, custom are all active pills
 
   const takenSet = new Set(pillPack.takenDates);
+  const lateSet = new Set(pillPack.lateDates ?? []);
   const isBreakDay = dayInPack > 0 && dayInPack > activeDays;
   const takenToday = takenSet.has(today);
 
@@ -163,6 +171,7 @@ export function computePillPackStatus(
       dayNumber,
       isBreak: dayNumber > activeDays,
       taken: takenSet.has(d),
+      takenLate: takenSet.has(d) && lateSet.has(d),
       isToday: d === today,
     };
   });

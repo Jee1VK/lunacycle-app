@@ -76,6 +76,71 @@ export default {
       return json({ ok: true, service: 'lunacycle-partner-sync' }, 200);
     }
 
+    const careMatch = url.pathname.match(/^\/care\/([A-Z0-9]{6})$/);
+    if (careMatch) {
+      const code = careMatch[1];
+      const partnerKey = `partner:${code}`;
+      const careKey = `care:${code}`;
+      const pinHeader = request.headers.get('X-LunaCycle-Pin') || '';
+      const secretHeader = request.headers.get('X-LunaCycle-Write-Secret') || '';
+
+      if (request.method === 'PUT') {
+        const readRes = await readBoundedText(request, MAX_BODY_BYTES);
+        if (readRes.error) return json({ error: readRes.error }, readRes.status);
+
+        const partnerRaw = await env.LUNACYCLE_SYNC.get(partnerKey);
+        if (!partnerRaw) return json({ error: 'Partner code not found' }, 404);
+        const partnerStored = JSON.parse(partnerRaw);
+        if (partnerStored.pinHash) {
+          const validPin = await constantTimeEqual(partnerStored.pinHash, pinHeader);
+          if (!validPin) return json({ error: 'Invalid PIN' }, 401);
+        }
+
+        let body = null;
+        try {
+          body = JSON.parse(readRes.text);
+        } catch {
+          body = null;
+        }
+        if (!body || typeof body !== 'object' || body.e2ee !== true) {
+          return json({ error: 'Encrypted care ping payload required' }, 400);
+        }
+
+        await env.LUNACYCLE_SYNC.put(careKey, JSON.stringify(body), {
+          expirationTtl: 60 * 60 * 24 * 7, // 7 days
+        });
+        return json({ ok: true }, 200);
+      }
+
+      if (request.method === 'GET') {
+        const partnerRaw = await env.LUNACYCLE_SYNC.get(partnerKey);
+        if (!partnerRaw) return json({ ping: null }, 200);
+        const partnerStored = JSON.parse(partnerRaw);
+        if (partnerStored.writeSecret) {
+          const validSecret = await constantTimeEqual(partnerStored.writeSecret, secretHeader);
+          if (!validSecret) return json({ error: 'Unauthorized writeSecret' }, 403);
+        }
+        const rawCare = await env.LUNACYCLE_SYNC.get(careKey);
+        if (!rawCare) return json({ ping: null }, 200);
+        return json({ ping: JSON.parse(rawCare) }, 200);
+      }
+
+      if (request.method === 'DELETE') {
+        const partnerRaw = await env.LUNACYCLE_SYNC.get(partnerKey);
+        if (partnerRaw) {
+          const partnerStored = JSON.parse(partnerRaw);
+          if (partnerStored.writeSecret) {
+            const validSecret = await constantTimeEqual(partnerStored.writeSecret, secretHeader);
+            if (!validSecret) return json({ error: 'Unauthorized writeSecret' }, 403);
+          }
+        }
+        await env.LUNACYCLE_SYNC.delete(careKey);
+        return json({ ok: true }, 200);
+      }
+
+      return json({ error: 'Method not allowed' }, 405);
+    }
+
     const match = url.pathname.match(/^\/sync\/([A-Z0-9]{6})$/);
     if (!match) {
       return json({ error: 'Not found' }, 404);

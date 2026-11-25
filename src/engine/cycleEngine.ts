@@ -646,3 +646,162 @@ export function computeBbtCoverline(
 
   return { confirmed: false, coverlineC: null, shiftStartDate: null };
 }
+
+export interface PersonalSymptomForecast {
+  windowLabel: string;
+  symptoms: SymptomId[];
+  matchedCycles: number;
+  headline: string;
+  body: string;
+}
+
+/**
+ * Finds recurring personal symptom patterns across >= 2 past cycles and returns
+ * a plain-English heads-up when today or tomorrow enters that window.
+ */
+export function computePersonalSymptomForecast(
+  logs: Record<string, DailyLog>,
+  stats: CycleStats,
+  summary: TodaySummary,
+): PersonalSymptomForecast | null {
+  if (summary.mode === 'pregnancy' || stats.periods.length < 2) return null;
+
+  // Check if user is in the 1..3 day pre-period window (today or tomorrow)
+  const inPrePeriodWindow =
+    !summary.isPeriodActiveToday &&
+    summary.daysUntilNextPeriod !== null &&
+    summary.daysUntilNextPeriod >= 1 &&
+    summary.daysUntilNextPeriod <= 3;
+
+  // Check if user is on Period Day 1..2
+  const inEarlyPeriod =
+    summary.isPeriodActiveToday && summary.cycleDay !== null && summary.cycleDay <= 2;
+
+  if (!inPrePeriodWindow && !inEarlyPeriod) return null;
+
+  const cycleHits: Partial<Record<SymptomId, number>> = {};
+
+  for (const period of stats.periods) {
+    const windowDates = inPrePeriodWindow
+      ? [-3, -2, -1].map((d) => addDays(period.startDate, d))
+      : [0, 1].map((d) => addDays(period.startDate, d));
+
+    const seenInCycle = new Set<SymptomId>();
+    for (const d of windowDates) {
+      for (const s of logs[d]?.symptoms ?? []) {
+        seenInCycle.add(s);
+      }
+    }
+    for (const s of seenInCycle) {
+      cycleHits[s] = (cycleHits[s] ?? 0) + 1;
+    }
+  }
+
+  const recurring = Object.entries(cycleHits)
+    .filter(([, count]) => count >= 2)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 2);
+
+  if (recurring.length === 0) return null;
+
+  const symptoms = recurring.map(([id]) => id as SymptomId);
+  const maxMatched = recurring[0][1];
+  const windowLabel = inPrePeriodWindow
+    ? `${summary.daysUntilNextPeriod} ${summary.daysUntilNextPeriod === 1 ? 'day' : 'days'} before your period`
+    : 'the first 2 days of your period';
+
+  return {
+    windowLabel,
+    symptoms,
+    matchedCycles: maxMatched,
+    headline: inPrePeriodWindow
+      ? `Personal heads-up (${summary.daysUntilNextPeriod}d before period)`
+      : 'Personal early-period cue',
+    body: `In ${maxMatched} past cycles, you often logged these around ${windowLabel}. Plan extra rest, hydration, and comfort ahead.`,
+  };
+}
+
+export interface ClinicalHealthFlag {
+  id: string;
+  severity: 'info' | 'attention';
+  title: string;
+  detail: string;
+}
+
+/**
+ * Gentle, non-diagnostic clinical pattern flags worth sharing with an OB-GYN.
+ */
+export function computeClinicalHealthFlags(
+  logs: Record<string, DailyLog>,
+  stats: CycleStats,
+): ClinicalHealthFlag[] {
+  const flags: ClinicalHealthFlag[] = [];
+  const completed = stats.completedCycleLengths;
+
+  const shortCycles = completed.filter((l) => l < 21).length;
+  if (shortCycles >= 2) {
+    flags.push({
+      id: 'short-cycles',
+      severity: 'attention',
+      title: 'Recurring short cycles (< 21 days)',
+      detail: `${shortCycles} logged cycles were shorter than 21 days. Worth reviewing with a clinician if persistent.`,
+    });
+  }
+
+  const longCycles = completed.filter((l) => l > 35).length;
+  if (longCycles >= 2) {
+    flags.push({
+      id: 'long-cycles',
+      severity: 'attention',
+      title: 'Recurring long cycles (> 35 days)',
+      detail: `${longCycles} logged cycles exceeded 35 days — a pattern clinicians often check for hormonal or PCOS factors.`,
+    });
+  }
+
+  if (stats.variationDays !== null && stats.variationDays > 9 && completed.length >= 3) {
+    flags.push({
+      id: 'high-variation',
+      severity: 'info',
+      title: `Cycle length variation (${stats.variationDays} days)`,
+      detail: 'Cycle-to-cycle swings above 9 days are helpful to share at an annual gynecology check-up.',
+    });
+  }
+
+  const prolongedPeriods = stats.periods.filter((p) => p.lengthDays > 8).length;
+  if (prolongedPeriods >= 1) {
+    flags.push({
+      id: 'prolonged-bleeding',
+      severity: 'attention',
+      title: 'Prolonged bleeding (> 8 days)',
+      detail: `${prolongedPeriods} logged ${prolongedPeriods === 1 ? 'period lasted' : 'periods lasted'} longer than 8 days. Consider sharing your PDF summary with a doctor.`,
+    });
+  }
+
+  // Heavy menstrual bleeding: > 80 mL estimated in any period OR >= 3 heavy flow days in a period
+  let heavyPeriodCount = 0;
+  for (const period of stats.periods) {
+    let ml = 0;
+    let heavyDays = 0;
+    for (let i = 0; i < period.lengthDays; i++) {
+      const log = logs[addDays(period.startDate, i)];
+      if (!log) continue;
+      if (log.flow === 'heavy') heavyDays += 1;
+      for (const h of log.hygieneChanges ?? []) {
+        ml += h.estimatedMl;
+      }
+    }
+    if (ml > 80 || heavyDays >= 3) {
+      heavyPeriodCount += 1;
+    }
+  }
+  if (heavyPeriodCount >= 1) {
+    flags.push({
+      id: 'heavy-flow',
+      severity: 'attention',
+      title: 'Heavy flow pattern noted',
+      detail: `${heavyPeriodCount} ${heavyPeriodCount === 1 ? 'cycle showed' : 'cycles showed'} heavy bleeding (> 80 mL estimated or 3+ heavy days). Mention this to your doctor to check iron/ferritin levels.`,
+    });
+  }
+
+  return flags;
+}

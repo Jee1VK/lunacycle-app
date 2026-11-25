@@ -6,11 +6,14 @@ import {
   Check,
   Clock,
   Droplets,
+  Heart,
+  HelpCircle,
   Pill,
   Plus,
   Sparkles,
   Square,
   Sun,
+  X,
 } from 'lucide-react';
 import {
   FLOW_LABEL_MAP,
@@ -18,7 +21,11 @@ import {
   PHASE_INFO,
   SYMPTOM_LABEL_MAP,
 } from '../engine/catalog';
-import { classifyDate, formatTemp } from '../engine/cycleEngine';
+import {
+  classifyDate,
+  computePersonalSymptomForecast,
+  formatTemp,
+} from '../engine/cycleEngine';
 import {
   computePillPackStatus,
   getHygieneTimerRemaining,
@@ -33,13 +40,22 @@ import {
   formatWeekdayShort,
   getDayOfMonth,
 } from '../engine/temporal';
-import type { CycleStats, LunaData, SanitaryProductType, TodaySummary } from '../types';
+import type {
+  CycleStats,
+  LunaData,
+  PartnerCarePing,
+  SanitaryProductType,
+  TodaySummary,
+} from '../types';
+import { ModalDialog } from './ModalDialog';
 
 interface TodayViewProps {
   data: LunaData;
   stats: CycleStats;
   summary: TodaySummary;
   reminders: ActiveReminder[];
+  incomingCarePing: PartnerCarePing | null;
+  onDismissCarePing: () => void;
   onQuickTogglePeriodToday: () => void;
   onOpenLogDialog: (date: string) => void;
   onLoadSampleData: () => void;
@@ -48,6 +64,7 @@ interface TodayViewProps {
   onLogHygieneChange: (restart: boolean) => void;
   onStopHygieneTimer: () => void;
   onTogglePillDate: (date: string) => void;
+  onMarkPillLate: (date: string) => void;
   onStartNewPillPack: () => void;
 }
 
@@ -56,6 +73,8 @@ export function TodayView({
   stats,
   summary,
   reminders,
+  incomingCarePing,
+  onDismissCarePing,
   onQuickTogglePeriodToday,
   onOpenLogDialog,
   onLoadSampleData,
@@ -64,9 +83,11 @@ export function TodayView({
   onLogHygieneChange,
   onStopHygieneTimer,
   onTogglePillDate,
+  onMarkPillLate,
   onStartNewPillPack,
 }: TodayViewProps) {
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [showMissedPillGuide, setShowMissedPillGuide] = useState(false);
   const activeTimer = data.settings.activeHygieneTimer;
 
   useEffect(() => {
@@ -85,6 +106,7 @@ export function TodayView({
   const pillReminderTimes = getPillReminderTimes(data.settings.pillPack);
   const t = getUiStrings(data.settings.language);
   const phaseInfo = PHASE_INFO[summary.phase];
+  const personalForecast = computePersonalSymptomForecast(data.logs, stats, summary);
   const todayLog = data.logs[summary.today];
   const todayEstMl = (todayLog?.hygieneChanges ?? []).reduce((s, h) => s + h.estimatedMl, 0);
 
@@ -300,6 +322,61 @@ export function TodayView({
         ) : null}
       </section>
 
+      {/* Incoming Encrypted Partner Care Ping */}
+      {incomingCarePing ? (
+        <section
+          className="card"
+          aria-label="Message from partner"
+          style={{
+            borderColor: 'var(--color-brand-accent)',
+            background: 'var(--color-brand-accent-soft)',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+              <Heart size={18} color="var(--color-brand-primary)" style={{ flexShrink: 0, marginTop: 2 }} />
+              <div>
+                <p style={{ margin: 0, fontSize: '0.76rem', fontWeight: 700, color: 'var(--color-brand-primary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Care Ping from {incomingCarePing.senderLabel}
+                </p>
+                <p style={{ margin: '4px 0 0', fontSize: '0.92rem', fontWeight: 600, color: 'var(--color-text-primary)' }}>
+                  {incomingCarePing.message}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              className="icon-btn"
+              style={{ minWidth: 36, minHeight: 36 }}
+              aria-label="Dismiss partner note"
+              onClick={onDismissCarePing}
+            >
+              <X size={16} />
+            </button>
+          </div>
+        </section>
+      ) : null}
+
+      {/* Predictive Personal Symptom Heads-Up */}
+      {personalForecast ? (
+        <section className="reminder-item reminder-item--gentle" aria-label="Personal symptom forecast">
+          <Sparkles size={18} style={{ flexShrink: 0, marginTop: 2 }} />
+          <div>
+            <p className="reminder-title">{personalForecast.headline}</p>
+            <p className="reminder-body" style={{ marginBottom: 6 }}>
+              {personalForecast.body}
+            </p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {personalForecast.symptoms.map((s) => (
+                <span key={s} className="phase-badge phase-badge--ovulation" style={{ fontSize: '0.72rem' }}>
+                  {SYMPTOM_LABEL_MAP[s]}
+                </span>
+              ))}
+            </div>
+          </div>
+        </section>
+      ) : null}
+
       {/* Active Reminders */}
       {reminders.length > 0 ? (
         <section className="reminder-list" aria-label="Active reminders">
@@ -459,6 +536,19 @@ export function TodayView({
                 Period Day {data.settings.pillPack.startPeriodDay ?? 2} start
               </span>
             ) : null}
+            <button
+              type="button"
+              className="phase-badge phase-badge--follicular"
+              style={{
+                fontSize: '0.72rem',
+                border: '1px solid var(--color-border-subtle)',
+                cursor: 'pointer',
+              }}
+              onClick={() => setShowMissedPillGuide(true)}
+            >
+              <HelpCircle size={12} />
+              Missed a pill?
+            </button>
           </div>
 
           {pillStatus.needsRefill ? (
@@ -497,19 +587,25 @@ export function TodayView({
                 key={d.date}
                 type="button"
                 onClick={() => onTogglePillDate(d.date)}
-                aria-label={`Pack day ${d.dayNumber}${d.taken ? ', taken' : ''}`}
+                aria-label={`Pack day ${d.dayNumber}${d.takenLate ? ', taken late' : d.taken ? ', taken' : ''}`}
                 style={{
                   minHeight: 34,
                   borderRadius: 8,
                   border: d.isToday
                     ? '2px solid var(--color-brand-accent)'
                     : '1px solid var(--color-border-subtle)',
-                  background: d.taken
-                    ? 'var(--color-brand-secondary)'
-                    : d.isBreak
-                      ? 'var(--color-surface-elevated)'
-                      : 'var(--color-surface-card)',
-                  color: d.taken ? '#FFFFFF' : 'var(--color-text-secondary)',
+                  background: d.takenLate
+                    ? 'var(--color-brand-accent)'
+                    : d.taken
+                      ? 'var(--color-brand-secondary)'
+                      : d.isBreak
+                        ? 'var(--color-surface-elevated)'
+                        : 'var(--color-surface-card)',
+                  color: d.takenLate
+                    ? '#1C1917'
+                    : d.taken
+                      ? '#FFFFFF'
+                      : 'var(--color-text-secondary)',
                   fontSize: '0.74rem',
                   fontWeight: 600,
                 }}
@@ -683,6 +779,67 @@ export function TodayView({
       <p className="disclaimer-note">
         Predictions are estimates based on your personal logs and are not intended for medical diagnosis or contraception.
       </p>
+
+      <ModalDialog
+        open={showMissedPillGuide}
+        title="Missed or Late Pill Guide"
+        onClose={() => setShowMissedPillGuide(false)}
+        footer={
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={() => setShowMissedPillGuide(false)}
+          >
+            Got It
+          </button>
+        }
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, fontSize: '0.88rem' }}>
+          <div className="card-subtle">
+            <strong style={{ display: 'block', marginBottom: 4 }}>1 Pill Missed (or Late &lt; 24 hrs)</strong>
+            <p style={{ margin: 0, color: 'var(--color-text-secondary)' }}>
+              Take the missed pill as soon as you remember — even if that means taking 2 pills in one day — then continue the rest of the pack at your normal time.
+            </p>
+          </div>
+          <div className="card-subtle">
+            <strong style={{ display: 'block', marginBottom: 4 }}>2+ Active Pills Missed (Combined Pill)</strong>
+            <p style={{ margin: 0, color: 'var(--color-text-secondary)' }}>
+              Take the most recent missed pill right away, discard earlier missed pills, and use backup contraception for the next 7 days. Check your pill leaflet or pharmacist if unsure.
+            </p>
+          </div>
+          <div className="card-subtle">
+            <strong style={{ display: 'block', marginBottom: 4 }}>Progestin-Only Mini-Pill</strong>
+            <p style={{ margin: 0, color: 'var(--color-text-secondary)' }}>
+              Timing windows are stricter (often 3 hours; 12 hours for desogestrel). If past your pill&apos;s window, take it immediately and use backup protection for 48 hours.
+            </p>
+          </div>
+          <div className="btn-row">
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => {
+                onMarkPillLate(summary.today);
+                setShowMissedPillGuide(false);
+              }}
+            >
+              Mark Today Taken Late
+            </button>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => {
+                onMarkPillLate(addDays(summary.today, -1));
+                setShowMissedPillGuide(false);
+              }}
+            >
+              Mark Yesterday Taken Late
+            </button>
+          </div>
+          <p className="field-hint">
+            General educational guidance only — always follow the package insert for your specific prescription.
+          </p>
+        </div>
+      </ModalDialog>
     </>
   );
 }

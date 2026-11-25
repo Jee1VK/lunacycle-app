@@ -54,6 +54,55 @@ jobs:
             sed -i 's|<application|<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n    <uses-permission android:name="android.permission.VIBRATE" />\n    <uses-permission android:name="android.permission.USE_BIOMETRIC" />\n\n    <application|' "$MANIFEST"
           fi
 
+      - name: Configure Android App Icon Long-Press Shortcuts
+        run: |
+          mkdir -p android/app/src/main/res/xml
+          cat << 'XML' > android/app/src/main/res/xml/shortcuts.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+            <shortcut
+              android:shortcutId="log_period"
+              android:enabled="true"
+              android:icon="@mipmap/ic_launcher"
+              android:shortcutShortLabel="Log Period"
+              android:shortcutLongLabel="Log Period Today">
+              <intent
+                android:action="android.intent.action.VIEW"
+                android:targetPackage="com.lunacycle.app"
+                android:targetClass="com.lunacycle.app.MainActivity"
+                android:data="https://jee1vk.github.io/lunacycle-app/?action=log-period" />
+            </shortcut>
+            <shortcut
+              android:shortcutId="take_pill"
+              android:enabled="true"
+              android:icon="@mipmap/ic_launcher"
+              android:shortcutShortLabel="Take Pill"
+              android:shortcutLongLabel="Mark Pill Taken">
+              <intent
+                android:action="android.intent.action.VIEW"
+                android:targetPackage="com.lunacycle.app"
+                android:targetClass="com.lunacycle.app.MainActivity"
+                android:data="https://jee1vk.github.io/lunacycle-app/?action=take-pill" />
+            </shortcut>
+            <shortcut
+              android:shortcutId="log_symptoms"
+              android:enabled="true"
+              android:icon="@mipmap/ic_launcher"
+              android:shortcutShortLabel="Symptoms"
+              android:shortcutLongLabel="Log Symptoms">
+              <intent
+                android:action="android.intent.action.VIEW"
+                android:targetPackage="com.lunacycle.app"
+                android:targetClass="com.lunacycle.app.MainActivity"
+                android:data="https://jee1vk.github.io/lunacycle-app/?action=log-symptoms" />
+            </shortcut>
+          </shortcuts>
+          XML
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          if ! grep -q "android.app.shortcuts" "$MANIFEST"; then
+            sed -i 's|</activity>|    <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />\n        </activity>|' "$MANIFEST"
+          fi
+
       - name: Embed Custom LunaCycle App Icon Across Android Mipmaps
         run: |
           python3 - << 'EOF'

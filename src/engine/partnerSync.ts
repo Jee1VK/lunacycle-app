@@ -1,6 +1,7 @@
 import type {
   CycleStats,
   LunaData,
+  PartnerCarePing,
   PartnerShareConfig,
   PartnerSnapshot,
   PartnerWatchConfig,
@@ -374,5 +375,111 @@ export async function deletePartnerSnapshot(
     return { ok: true };
   } catch {
     return { ok: false, error: 'Could not reach relay to delete old snapshot.' };
+  }
+}
+
+export async function encryptPartnerCarePing(
+  ping: PartnerCarePing,
+  code: string,
+  pin?: string,
+): Promise<PartnerE2eeEnvelope> {
+  const salt = new Uint8Array(new ArrayBuffer(16));
+  const iv = new Uint8Array(new ArrayBuffer(12));
+  crypto.getRandomValues(salt);
+  crypto.getRandomValues(iv);
+
+  const key = await derivePartnerKey(code, pin, salt);
+  const plaintext = new TextEncoder().encode(JSON.stringify(ping));
+  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plaintext);
+
+  return {
+    e2ee: true,
+    algorithm: 'AES-GCM',
+    kdf: 'PBKDF2-SHA256',
+    iterations: E2EE_ITERATIONS,
+    saltBase64: toBase64(salt),
+    ivBase64: toBase64(iv),
+    ciphertextBase64: toBase64(new Uint8Array(ciphertext)),
+    updatedAt: ping.sentAt,
+  };
+}
+
+export async function decryptPartnerCarePing(
+  envelope: PartnerE2eeEnvelope,
+  code: string,
+  pin?: string,
+): Promise<PartnerCarePing> {
+  const salt = fromBase64(envelope.saltBase64);
+  const iv = fromBase64(envelope.ivBase64);
+  const ciphertext = fromBase64(envelope.ciphertextBase64);
+  const key = await derivePartnerKey(code, pin, salt);
+  const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
+  return JSON.parse(new TextDecoder().decode(plaintext)) as PartnerCarePing;
+}
+
+export async function pushPartnerCarePing(
+  watch: PartnerWatchConfig,
+  message: string,
+  senderLabel = 'Your Partner',
+): Promise<{ ok: boolean; error?: string }> {
+  const baseUrl = watch.syncServerUrl.trim().replace(/\/+$/, '');
+  const trimmed = message.trim();
+  if (!baseUrl || !trimmed) return { ok: false, error: 'Enter a short message first.' };
+
+  try {
+    const ping: PartnerCarePing = {
+      id: `care-${Date.now()}`,
+      message: trimmed.slice(0, 180),
+      senderLabel: senderLabel.trim() || 'Your Partner',
+      sentAt: new Date().toISOString(),
+    };
+    const envelope = await encryptPartnerCarePing(ping, watch.code, watch.pin);
+    const res = await fetch(`${baseUrl}/care/${encodeURIComponent(watch.code.toUpperCase())}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(watch.pinHash ? { 'X-LunaCycle-Pin': watch.pinHash } : {}),
+      },
+      body: JSON.stringify(envelope),
+    });
+    if (!res.ok) {
+      const err = (await res.json().catch(() => ({}))) as { error?: string };
+      return { ok: false, error: err.error || `HTTP ${res.status}` };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, error: 'Offline or unable to reach relay.' };
+  }
+}
+
+export async function fetchPartnerCarePing(
+  config: PartnerShareConfig,
+): Promise<PartnerCarePing | null> {
+  const baseUrl = config.syncServerUrl.trim().replace(/\/+$/, '');
+  if (!baseUrl || !config.enabled) return null;
+  try {
+    const res = await fetch(`${baseUrl}/care/${encodeURIComponent(config.code.toUpperCase())}`, {
+      method: 'GET',
+      headers: { 'X-LunaCycle-Write-Secret': config.writeSecret },
+    });
+    if (!res.ok) return null;
+    const body = (await res.json().catch(() => ({}))) as { ping?: unknown };
+    if (!body.ping || !isPartnerE2eeEnvelope(body.ping)) return null;
+    return await decryptPartnerCarePing(body.ping, config.code, config.pin);
+  } catch {
+    return null;
+  }
+}
+
+export async function clearPartnerCarePing(config: PartnerShareConfig): Promise<void> {
+  const baseUrl = config.syncServerUrl.trim().replace(/\/+$/, '');
+  if (!baseUrl) return;
+  try {
+    await fetch(`${baseUrl}/care/${encodeURIComponent(config.code.toUpperCase())}`, {
+      method: 'DELETE',
+      headers: { 'X-LunaCycle-Write-Secret': config.writeSecret },
+    });
+  } catch {
+    // Ignore
   }
 }

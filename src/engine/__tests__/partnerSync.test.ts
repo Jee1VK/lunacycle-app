@@ -4,7 +4,9 @@ import {
   buildPartnerSnapshot,
   buildPartnerTextSummary,
   createDefaultPartnerShareConfig,
+  decryptPartnerCarePing,
   decryptPartnerSnapshot,
+  encryptPartnerCarePing,
   encryptPartnerSnapshot,
   generatePartnerCode,
   getPartnerSupportTips,
@@ -106,5 +108,19 @@ describe('partnerSync engine', () => {
     expect(decrypted.todaySymptoms).toEqual(['cramps']);
 
     await expect(decryptPartnerSnapshot(envelope, cfg.code, '9999')).rejects.toThrow();
+  });
+
+  it('end-to-end encrypts two-way Partner Care Pings with AES-256-GCM', async () => {
+    const ping = {
+      id: 'care-123',
+      message: 'Picking up warm tea and heating pad!',
+      senderLabel: 'Your Partner',
+      sentAt: '2026-06-01T10:00:00.000Z',
+    };
+    const env = await encryptPartnerCarePing(ping, 'KUB789', '2468');
+    expect(JSON.stringify(env)).not.toContain('heating pad');
+    const dec = await decryptPartnerCarePing(env, 'KUB789', '2468');
+    expect(dec.message).toBe(ping.message);
+    await expect(decryptPartnerCarePing(env, 'KUB789', '0000')).rejects.toThrow();
   });
 });

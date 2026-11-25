@@ -7,6 +7,7 @@ import {
   Droplets,
   HeartHandshake,
   RefreshCw,
+  Send,
   Share2,
   Shield,
   Sparkles,
@@ -37,6 +38,7 @@ import {
   generatePartnerCode,
   getPartnerSupportTips,
   hashPartnerPin,
+  pushPartnerCarePing,
   pushPartnerSnapshot,
 } from '../engine/partnerSync';
 import { formatShortDate, formatWeekdayShort, getDayOfMonth } from '../engine/temporal';
@@ -87,6 +89,28 @@ export function PartnerView({
   );
   const [watchStatus, setWatchStatus] = useState<string | null>(null);
   const [loadingWatch, setLoadingWatch] = useState(false);
+  const [carePingInput, setCarePingInput] = useState('');
+  const [sendingCarePing, setSendingCarePing] = useState(false);
+
+  const CARE_PING_PRESETS = [
+    'Picking up a heating pad or warm tea — need anything?',
+    'Thinking of you today — take it easy tonight',
+    'Dinner is on me tonight — relax and rest',
+    'Want me to grab dark chocolate or your favorite snacks?',
+  ];
+
+  const handleSendCarePing = async (msg: string) => {
+    if (!watchConfig) return;
+    setSendingCarePing(true);
+    const res = await pushPartnerCarePing(watchConfig, msg, 'Your Partner');
+    setSendingCarePing(false);
+    if (res.ok) {
+      setCarePingInput('');
+      onNotify('Encrypted care ping sent!');
+    } else {
+      onNotify(res.error || 'Could not send care ping.');
+    }
+  };
 
   const handleCopyCode = async () => {
     try {
@@ -597,6 +621,51 @@ export function PartnerView({
                   </button>
                 </>
               ) : null}
+            </div>
+
+            {/* Two-Way Encrypted Partner Care Pings */}
+            <div className="card-subtle" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <strong style={{ fontSize: '0.86rem', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <Send size={14} color="var(--color-brand-primary)" />
+                Send an Encrypted Care Ping
+              </strong>
+              <p className="section-caption">
+                End-to-end encrypted — appears gently on {watchedSnapshot.profileLabel}&apos;s Today screen.
+              </p>
+              <div className="chip-group">
+                {CARE_PING_PRESETS.map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    className="chip"
+                    style={{ fontSize: '0.78rem', textAlign: 'left', height: 'auto', padding: '7px 11px' }}
+                    disabled={sendingCarePing}
+                    onClick={() => void handleSendCarePing(preset)}
+                  >
+                    {preset}
+                  </button>
+                ))}
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <input
+                  type="text"
+                  className="input-control"
+                  maxLength={140}
+                  placeholder="Write a short note..."
+                  value={carePingInput}
+                  onChange={(e) => setCarePingInput(e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="btn-primary"
+                  style={{ minHeight: 44, padding: '8px 14px', flexShrink: 0 }}
+                  disabled={sendingCarePing || !carePingInput.trim()}
+                  onClick={() => void handleSendCarePing(carePingInput)}
+                >
+                  <Send size={15} />
+                  Send
+                </button>
+              </div>
             </div>
           </div>
         )}

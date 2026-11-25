@@ -79,8 +79,10 @@ import {
 } from './engine/otaUpdater';
 import {
   buildPartnerSnapshot,
+  clearPartnerCarePing,
   createDefaultPartnerShareConfig,
   deletePartnerSnapshot,
+  fetchPartnerCarePing,
   fetchPartnerSnapshot,
   pushPartnerSnapshot,
 } from './engine/partnerSync';
@@ -92,6 +94,7 @@ import { todayPlainDate } from './engine/temporal';
 import type {
   DailyLog,
   LunaData,
+  PartnerCarePing,
   PartnerShareConfig,
   PartnerSnapshot,
   PartnerWatchConfig,
@@ -119,6 +122,7 @@ export function App() {
   );
   const [partnerWatchConfig, setPartnerWatchConfig] = useState<PartnerWatchConfig | null>(null);
   const [watchedPartnerSnapshot, setWatchedPartnerSnapshot] = useState<PartnerSnapshot | null>(null);
+  const [incomingCarePing, setIncomingCarePing] = useState<PartnerCarePing | null>(null);
 
   const [activeTab, setActiveTab] = useState<TabId>('today');
   const [calendarEditInit, setCalendarEditInit] = useState(false);
@@ -363,6 +367,75 @@ export function App() {
     partnerShareConfig.permissions.shareSymptomsAndMood,
     partnerShareConfig.permissions.shareUpcomingForecast,
   ]);
+
+  // Poll for encrypted two-way Partner Care Pings when sharing is enabled
+  useEffect(() => {
+    if (!ready || locked || !partnerShareConfig.enabled || !partnerShareConfig.syncServerUrl.trim()) {
+      return;
+    }
+    let cancelled = false;
+    const pollCare = async () => {
+      const ping = await fetchPartnerCarePing(partnerShareConfig);
+      if (cancelled) return;
+      if (ping) {
+        const dismissedId = localStorage.getItem('luna_dismissed_care_ping_id');
+        if (dismissedId !== ping.id) {
+          setIncomingCarePing(ping);
+          const notifKey = `luna_care_ping_notif_${ping.id}`;
+          if (!sessionStorage.getItem(notifKey)) {
+            sessionStorage.setItem(notifKey, '1');
+            dispatchGentleBrowserNotification(
+              `Care Ping from ${ping.senderLabel}`,
+              ping.message,
+              data.settings.disguiseMode,
+            );
+          }
+        }
+      }
+    };
+    void pollCare();
+    const id = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void pollCare();
+    }, 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [
+    ready,
+    locked,
+    partnerShareConfig.enabled,
+    partnerShareConfig.code,
+    partnerShareConfig.pin,
+    partnerShareConfig.writeSecret,
+    partnerShareConfig.syncServerUrl,
+    data.settings.disguiseMode,
+  ]);
+
+  // Handle Android / PWA App Icon Long-Press Shortcuts (?action=log-period | take-pill | log-symptoms)
+  const shortcutHandledRef = useRef(false);
+  useEffect(() => {
+    if (!ready || locked || shortcutHandledRef.current) return;
+    const params = new URLSearchParams(window.location.search);
+    const action = params.get('action');
+    if (!action) return;
+    shortcutHandledRef.current = true;
+    params.delete('action');
+    const cleanUrl = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}${window.location.hash}`;
+    window.history.replaceState({}, '', cleanUrl);
+
+    if (action === 'log-period') {
+      handleQuickTogglePeriodToday();
+    } else if (action === 'take-pill') {
+      if (!data.settings.pillPack.takenDates.includes(today)) {
+        handleTogglePillDate(today);
+      } else {
+        showToast('Today’s pill is already marked taken.');
+      }
+    } else if (action === 'log-symptoms') {
+      setLogDialogDate(today);
+    }
+  }, [ready, locked]);
 
   // Partner Auto-Refresh every 60s when connected to a partner
   useEffect(() => {
@@ -712,10 +785,14 @@ export function App() {
     const current = data.settings.pillPack.takenDates;
     const exists = current.includes(date);
     const nextTaken = exists ? current.filter((d) => d !== date) : [...current, date];
+    const nextLate = exists
+      ? (data.settings.pillPack.lateDates ?? []).filter((d) => d !== date)
+      : data.settings.pillPack.lateDates ?? [];
     handleUpdateSettings({
       pillPack: {
         ...data.settings.pillPack,
         takenDates: nextTaken,
+        lateDates: nextLate,
       },
     });
     if (date === today) {
@@ -727,6 +804,35 @@ export function App() {
       }
       showToast(exists ? 'Unmarked pill for today.' : 'Marked today’s pill taken.');
     }
+  };
+
+  const handleMarkPillLate = (date: string) => {
+    const nextTaken = data.settings.pillPack.takenDates.includes(date)
+      ? data.settings.pillPack.takenDates
+      : [...data.settings.pillPack.takenDates, date];
+    const currentLate = data.settings.pillPack.lateDates ?? [];
+    const nextLate = currentLate.includes(date) ? currentLate : [...currentLate, date];
+    handleUpdateSettings({
+      pillPack: {
+        ...data.settings.pillPack,
+        takenDates: nextTaken,
+        lateDates: nextLate,
+      },
+    });
+    if (date === today) {
+      pillAlarmAudio.stop();
+      setActivePillRing(null);
+      setPillSnooze(null);
+    }
+    showToast(`Marked pill for ${date === today ? 'today' : date} as taken late.`);
+  };
+
+  const handleDismissCarePing = () => {
+    if (incomingCarePing) {
+      localStorage.setItem('luna_dismissed_care_ping_id', incomingCarePing.id);
+    }
+    setIncomingCarePing(null);
+    void clearPartnerCarePing(partnerShareConfig);
   };
 
   const handleTriggerTestPillAlarm = () => {
@@ -969,6 +1075,8 @@ export function App() {
             stats={stats}
             summary={summary}
             reminders={activeReminders}
+            incomingCarePing={incomingCarePing}
+            onDismissCarePing={handleDismissCarePing}
             onQuickTogglePeriodToday={handleQuickTogglePeriodToday}
             onOpenLogDialog={(d) => setLogDialogDate(d)}
             onLoadSampleData={handleLoadSampleData}
@@ -980,6 +1088,7 @@ export function App() {
             onLogHygieneChange={handleLogHygieneChange}
             onStopHygieneTimer={handleStopHygieneTimer}
             onTogglePillDate={handleTogglePillDate}
+            onMarkPillLate={handleMarkPillLate}
             onStartNewPillPack={handleStartNewPillPack}
           />
         ) : null}

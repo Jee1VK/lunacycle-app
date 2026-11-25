@@ -1,6 +1,6 @@
 import type { CycleStats, LunaData, PhaseSymptomInsight } from '../types';
 import { FLOW_LABEL_MAP, MOOD_LABEL_MAP, SYMPTOM_LABEL_MAP } from './catalog';
-import { formatTemp } from './cycleEngine';
+import { computeClinicalHealthFlags, formatTemp } from './cycleEngine';
 import { encryptPayload, isEncryptedEnvelope, decryptPayload, sanitizeLunaData } from './cryptoStorage';
 import { compareDates, formatLongDate, formatShortDate } from './temporal';
 
@@ -209,6 +209,22 @@ export function openDoctorPdfReport(
           ? 'Irregular — recommended to review with clinician'
           : 'Building baseline (< 2 completed cycles)';
 
+  const clinicalFlags = computeClinicalHealthFlags(data.logs, stats);
+  const clinicalFlagsHtml =
+    clinicalFlags.length > 0
+      ? `<h2>Clinical Pattern Notes (For Clinician Discussion)</h2>
+  <div class="box">
+    <ul style="margin: 0; padding-left: 18px;">
+      ${clinicalFlags
+        .map(
+          (f) =>
+            `<li style="margin-bottom: 6px;"><strong>${escapeHtml(f.title)}:</strong> ${escapeHtml(f.detail)}</li>`,
+        )
+        .join('')}
+    </ul>
+  </div>`
+      : '';
+
   const html = `<!doctype html>
 <html lang="en">
 <head>
@@ -378,6 +394,8 @@ export function openDoctorPdfReport(
   </div>`
       : ''
   }
+
+  ${clinicalFlagsHtml}
 
   <div class="disclaimer">
     Note: This summary is compiled strictly from self-logged personal observations on the user's device. It is intended to assist clinical conversations and is not a medical diagnosis or contraceptive method.

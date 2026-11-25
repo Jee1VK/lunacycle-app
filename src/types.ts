@@ -79,8 +79,16 @@ export interface PillPackSettings {
   refillReminderEnabled?: boolean;
   refillThresholdDays?: number; // Remind when <= N days left in pack
   takenDates: string[]; // YYYY-MM-DD[]
+  lateDates?: string[]; // YYYY-MM-DD[] subset of takenDates marked taken late
   larcType: string; // e.g. 'IUD', 'Implant', ''
   larcRenewalDate: string | null; // YYYY-MM-DD
+}
+
+export interface PartnerCarePing {
+  id: string;
+  message: string;
+  senderLabel: string;
+  sentAt: string; // ISO timestamp
 }
 
 export interface DailyLog {
@@ -299,6 +307,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     refillReminderEnabled: true,
     refillThresholdDays: 5,
     takenDates: [],
+    lateDates: [],
     larcType: '',
     larcRenewalDate: null,
   },
