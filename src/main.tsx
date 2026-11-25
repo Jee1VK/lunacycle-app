@@ -8,11 +8,6 @@ async function bootstrap() {
   // Feature-detect Temporal API and load polyfill only when missing
   await ensureTemporal();
 
-  // Feature-detect native HTML <input type="checkbox" switch> and load polyfill only when missing
-  if (typeof HTMLInputElement !== 'undefined' && !('switch' in HTMLInputElement.prototype)) {
-    void import('input-switch-polyfill');
-  }
-
   // Register offline-first service worker in production builds
   if (import.meta.env.PROD && 'serviceWorker' in navigator) {
     window.addEventListener('load', () => {
