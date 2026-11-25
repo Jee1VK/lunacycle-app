@@ -79,7 +79,6 @@ import {
 } from './engine/otaUpdater';
 import {
   buildPartnerSnapshot,
-  clearPartnerCarePing,
   createDefaultPartnerShareConfig,
   deletePartnerSnapshot,
   fetchCareThreadForPartner,
@@ -391,10 +390,10 @@ export function App() {
     }
     let cancelled = false;
     const pollCare = async () => {
-      const thread = await fetchCareThreadForPrimary(partnerShareConfig);
-      if (cancelled) return;
-      setCareThread(thread);
-      const latestToPrimary = thread.pings.find((p) => (p.direction ?? 'to_primary') === 'to_primary') ?? null;
+      const res = await fetchCareThreadForPrimary(partnerShareConfig);
+      if (cancelled || !res.ok || !res.thread) return;
+      const latestToPrimary =
+        res.thread.pings.find((p) => (p.direction ?? 'to_primary') === 'to_primary') ?? null;
       if (latestToPrimary) {
         const dismissedId = localStorage.getItem('luna_dismissed_care_ping_id');
         if (dismissedId !== latestToPrimary.id) {
@@ -493,10 +492,10 @@ export function App() {
       void saveCachedPartnerSnapshotToVault(res.snapshot);
 
       // Also refresh encrypted 2-way Care Thread so partner sees her reactions & reverse Care Requests
-      const thread = await fetchCareThreadForPartner(partnerWatchConfig);
-      if (!cancelled) {
-        setCareThread(thread);
-        const latestReq = thread.pings.find((p) => p.direction === 'to_partner');
+      const threadRes = await fetchCareThreadForPartner(partnerWatchConfig);
+      if (!cancelled && threadRes.ok && threadRes.thread) {
+        setCareThread(threadRes.thread);
+        const latestReq = threadRes.thread.pings.find((p) => p.direction === 'to_partner');
         if (latestReq && partnerWatchConfig.alertsOnThisPhone) {
           const reqKey = `luna_partner_req_${latestReq.id}`;
           if (!sessionStorage.getItem(reqKey)) {
@@ -894,7 +893,6 @@ export function App() {
       localStorage.setItem('luna_dismissed_care_ping_id', incomingCarePing.id);
     }
     setIncomingCarePing(null);
-    void clearPartnerCarePing(partnerShareConfig);
   };
 
   const handleReactToCarePing = async (pingId: string, reaction: string) => {
@@ -903,8 +901,7 @@ export function App() {
       pingId,
       reaction,
     });
-    if (res.ok && res.thread) {
-      setCareThread(res.thread);
+    if (res.ok) {
       setIncomingCarePing((prev) => (prev && prev.id === pingId ? { ...prev, reaction } : prev));
       showToast(`Sent reaction: ${reaction}`);
     } else {
@@ -917,8 +914,7 @@ export function App() {
       type: 'request',
       message,
     });
-    if (res.ok && res.thread) {
-      setCareThread(res.thread);
+    if (res.ok) {
       showToast('Encrypted request sent to your partner!');
     } else {
       showToast(res.error || 'Could not send request.');

@@ -161,10 +161,12 @@ describe('partnerSync engine', () => {
     const qr = generateQrMatrix('https://jee1vk.github.io/lunacycle-app/?partner=KUB789');
     expect(qr.length).toBeGreaterThanOrEqual(29);
     expect(qr.length).toBe(qr[0].length);
-    // Top-left 7x7 finder outer border must be dark
+    // Top-left 7x7 finder outer border + fixed dark module (size-8, 8) + Copy-2 format bit (8, size-8)
     expect(qr[0][0]).toBe(true);
     expect(qr[0][6]).toBe(true);
     expect(qr[6][0]).toBe(true);
+    expect(qr[qr.length - 8][8]).toBe(true);
+    expect(qr[8][qr.length - 8]).toBe(true);
   });
 
   it('encrypts and decrypts two-way PartnerCareThread with reactions, hugs, and reverse requests', async () => {

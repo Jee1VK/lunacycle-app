@@ -185,8 +185,8 @@ export function generateQrMatrix(text: string): boolean[][] {
   setFn(7, 8, ((formatBits >>> 6) & 1) === 1);
   for (let i = 9; i < 15; i++) setFn(14 - i, 8, ((formatBits >>> (14 - i)) & 1) === 1);
 
-  for (let i = 0; i < 8; i++) setFn(size - 1 - i, 8, ((formatBits >>> i) & 1) === 1);
-  for (let i = 8; i < 15; i++) setFn(8, size - 15 + i, ((formatBits >>> i) & 1) === 1);
+  for (let i = 0; i < 7; i++) setFn(size - 1 - i, 8, ((formatBits >>> (14 - i)) & 1) === 1);
+  for (let i = 0; i < 8; i++) setFn(8, size - 8 + i, ((formatBits >>> (7 - i)) & 1) === 1);
 
   return matrix;
 }

@@ -178,6 +178,21 @@ export function PartnerView({
   const [selectedForecastDay, setSelectedForecastDay] = useState<{ date: string; phase: PartnerSnapshot['phase'] } | null>(null);
 
   useEffect(() => {
+    try {
+      const raw = localStorage.getItem(careKitStorageKey);
+      setCareKitChecked(raw ? (JSON.parse(raw) as string[]) : []);
+    } catch {
+      setCareKitChecked([]);
+    }
+  }, [careKitStorageKey]);
+
+  useEffect(() => {
+    if (partnerOnlyMode) {
+      setActiveRoleTab('watch');
+    }
+  }, [partnerOnlyMode]);
+
+  useEffect(() => {
     if (prefillPartnerCode) {
       setConnectCode(prefillPartnerCode);
       setActiveRoleTab('watch');
@@ -444,6 +459,8 @@ export function PartnerView({
               onClick={() => {
                 onUpdateWatchConfig(null);
                 onUpdateWatchedSnapshot(null);
+                onUpdateCareThread({ pings: [], updatedAt: '' });
+                onClearPinAuthError?.();
                 setWatchStatus('Disconnected from partner.');
               }}
             >
@@ -1151,28 +1168,28 @@ export function PartnerView({
                 </div>
               ) : null}
             </div>
-
-            {/* Dedicated Partner-Only Phone Mode Toggle */}
-            <label className="setting-row card-subtle" htmlFor="partner-only-mode-switch" style={{ padding: '10px 14px', borderBottom: 'none' }}>
-              <div className="setting-label-wrap">
-                <span className="setting-title" style={{ fontSize: '0.86rem', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                  <Smartphone size={14} color="var(--color-brand-secondary)" />
-                  Partner-Only Phone Mode
-                </span>
-                <span className="setting-desc">
-                  Hides period-logging tabs so this phone stays a clean Partner Companion app
-                </span>
-              </div>
-              <input
-                id="partner-only-mode-switch"
-                type="checkbox"
-                checked={partnerOnlyMode}
-                onChange={(e) => onTogglePartnerOnlyMode(e.target.checked)}
-                {...({ switch: '' } as Record<string, string>)}
-              />
-            </label>
           </div>
         )}
+
+        {/* Dedicated Partner-Only Phone Mode Toggle (always accessible even when disconnected) */}
+        <label className="setting-row card-subtle" htmlFor="partner-only-mode-switch" style={{ padding: '10px 14px', borderBottom: 'none', marginTop: 12 }}>
+          <div className="setting-label-wrap">
+            <span className="setting-title" style={{ fontSize: '0.86rem', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Smartphone size={14} color="var(--color-brand-secondary)" />
+              Partner-Only Phone Mode
+            </span>
+            <span className="setting-desc">
+              Hides period-logging tabs so this phone stays a clean Partner Companion app
+            </span>
+          </div>
+          <input
+            id="partner-only-mode-switch"
+            type="checkbox"
+            checked={partnerOnlyMode}
+            onChange={(e) => onTogglePartnerOnlyMode(e.target.checked)}
+            {...({ switch: '' } as Record<string, string>)}
+          />
+        </label>
 
         {watchStatus ? (
           <p style={{ margin: '10px 0 0', fontSize: '0.84rem', fontWeight: 600, color: 'var(--color-brand-primary)' }}>
@@ -1480,7 +1497,7 @@ export function PartnerView({
             <label className="setting-row" htmlFor="perm-forecast">
               <div className="setting-label-wrap">
                 <span className="setting-title" style={{ fontSize: '0.88rem' }}>
-                  Share 14-Day Phase Forecast
+                  Share 30-Day Phase Forecast
                 </span>
                 <span className="setting-desc">Shows upcoming period &amp; fertile days</span>
               </div>
@@ -1606,16 +1623,16 @@ export function PartnerView({
       >
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, textAlign: 'center' }}>
           {qrMatrix ? (
-            <div style={{ background: '#FFFFFF', padding: 14, borderRadius: 12, border: '1px solid var(--color-border-subtle)' }}>
+            <div style={{ background: '#FFFFFF', padding: 8, borderRadius: 12, border: '1px solid var(--color-border-subtle)' }}>
               <svg
-                width="200"
-                height="200"
-                viewBox={`0 0 ${qrMatrix.length} ${qrMatrix.length}`}
+                width="216"
+                height="216"
+                viewBox={`-4 -4 ${qrMatrix.length + 8} ${qrMatrix.length + 8}`}
                 shapeRendering="crispEdges"
                 role="img"
                 aria-label={`QR code for Partner Code ${shareConfig.code}`}
               >
-                <rect width={qrMatrix.length} height={qrMatrix.length} fill="#FFFFFF" />
+                <rect x={-4} y={-4} width={qrMatrix.length + 8} height={qrMatrix.length + 8} fill="#FFFFFF" />
                 {qrMatrix.map((row, r) =>
                   row.map((cell, c) =>
                     cell ? <rect key={`${r}-${c}`} x={c} y={r} width={1} height={1} fill="#1C1917" /> : null,

@@ -244,6 +244,22 @@ export function SettingsView({
             {...({ switch: '' } as Record<string, string>)}
           />
         </label>
+
+        <label className="setting-row" htmlFor="settings-partner-only-switch">
+          <div className="setting-label-wrap">
+            <span className="setting-title">Partner-Only Phone Mode</span>
+            <span className="setting-desc">
+              Simplifies navigation to just Partner &amp; Settings on a partner&apos;s phone
+            </span>
+          </div>
+          <input
+            id="settings-partner-only-switch"
+            type="checkbox"
+            checked={Boolean(settings.partnerOnlyMode)}
+            onChange={(e) => onUpdateSettings({ partnerOnlyMode: e.target.checked })}
+            {...({ switch: '' } as Record<string, string>)}
+          />
+        </label>
       </section>
 
       {/* Tracking Mode (hidden in Simple / Teen Mode) */}

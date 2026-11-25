@@ -671,43 +671,47 @@ async function fetchCareThreadInternal(
   code: string,
   pin: string | undefined,
   headers: Record<string, string>,
-): Promise<PartnerCareThread> {
+): Promise<{ ok: boolean; thread?: PartnerCareThread }> {
   const res = await fetch(`${baseUrl}/care/${encodeURIComponent(code.toUpperCase())}`, {
     method: 'GET',
     headers,
   });
-  if (!res.ok) return { pings: [], updatedAt: new Date().toISOString() };
+  if (!res.ok) return { ok: false };
   const body = (await res.json().catch(() => ({}))) as { thread?: unknown; ping?: unknown };
   const raw = body.thread ?? body.ping;
-  if (!raw || !isPartnerE2eeEnvelope(raw)) {
-    return { pings: [], updatedAt: new Date().toISOString() };
+  if (!raw) {
+    return { ok: true, thread: { pings: [], updatedAt: new Date().toISOString() } };
+  }
+  if (!isPartnerE2eeEnvelope(raw)) {
+    return { ok: false };
   }
   try {
-    return await decryptPartnerCareThread(raw, code, pin);
+    const thread = await decryptPartnerCareThread(raw, code, pin);
+    return { ok: true, thread };
   } catch {
-    return { pings: [], updatedAt: new Date().toISOString() };
+    return { ok: false };
   }
 }
 
 export async function fetchCareThreadForPrimary(
   config: PartnerShareConfig,
-): Promise<PartnerCareThread> {
+): Promise<{ ok: boolean; thread?: PartnerCareThread }> {
   const baseUrl = config.syncServerUrl.trim().replace(/\/+$/, '');
-  if (!baseUrl || !config.enabled) return { pings: [], updatedAt: new Date().toISOString() };
+  if (!baseUrl || !config.enabled) return { ok: false };
   try {
     return await fetchCareThreadInternal(baseUrl, config.code, config.pin, {
       'X-LunaCycle-Write-Secret': config.writeSecret,
     });
   } catch {
-    return { pings: [], updatedAt: new Date().toISOString() };
+    return { ok: false };
   }
 }
 
 export async function fetchCareThreadForPartner(
   watch: PartnerWatchConfig,
-): Promise<PartnerCareThread> {
+): Promise<{ ok: boolean; thread?: PartnerCareThread }> {
   const baseUrl = watch.syncServerUrl.trim().replace(/\/+$/, '');
-  if (!baseUrl) return { pings: [], updatedAt: new Date().toISOString() };
+  if (!baseUrl) return { ok: false };
   try {
     return await fetchCareThreadInternal(
       baseUrl,
@@ -716,7 +720,7 @@ export async function fetchCareThreadForPartner(
       watch.pinHash ? { 'X-LunaCycle-Pin': watch.pinHash } : {},
     );
   } catch {
-    return { pings: [], updatedAt: new Date().toISOString() };
+    return { ok: false };
   }
 }
 
@@ -731,7 +735,11 @@ export async function pushPartnerCarePing(
   if (!baseUrl || !trimmed) return { ok: false, error: 'Enter a short message first.' };
 
   try {
-    const existing = await fetchCareThreadForPartner(watch);
+    const fetched = await fetchCareThreadForPartner(watch);
+    const existingPings = fetched.ok && fetched.thread ? fetched.thread.pings : [];
+    if (!fetched.ok) {
+      return { ok: false, error: 'Could not sync existing pings — check connection or PIN.' };
+    }
     const ping: PartnerCarePing = {
       id: `care-${Date.now()}`,
       direction: 'to_primary',
@@ -741,7 +749,7 @@ export async function pushPartnerCarePing(
       sentAt: new Date().toISOString(),
     };
     const nextThread: PartnerCareThread = {
-      pings: [ping, ...existing.pings].slice(0, 5),
+      pings: [ping, ...existingPings].slice(0, 5),
       updatedAt: ping.sentAt,
     };
     const envelope = await encryptPartnerCareThread(nextThread, watch.code, watch.pin);
@@ -772,9 +780,12 @@ export async function sendPrimaryCareRequestOrReaction(
   const baseUrl = config.syncServerUrl.trim().replace(/\/+$/, '');
   if (!baseUrl || !config.enabled) return { ok: false, error: 'Enable Partner Sharing first.' };
   try {
-    const existing = await fetchCareThreadForPrimary(config);
+    const fetched = await fetchCareThreadForPrimary(config);
+    if (!fetched.ok || !fetched.thread) {
+      return { ok: false, error: 'Offline or unable to reach relay.' };
+    }
     const nowIso = new Date().toISOString();
-    let nextPings = [...existing.pings];
+    let nextPings = [...fetched.thread.pings];
 
     if (action.type === 'react') {
       nextPings = nextPings.map((p) =>

@@ -139,11 +139,26 @@ export default {
       }
 
       if (request.method === 'GET') {
+        const clientIp = request.headers.get('CF-Connecting-IP') || 'unknown';
+        const rlKey = `rl:${clientIp}:${code}`;
+        const attempts = Number((await env.LUNACYCLE_SYNC.get(rlKey)) || '0');
+        if (attempts >= MAX_FAILED_ATTEMPTS) {
+          return json({ error: 'Too many failed attempts. Please wait 15 minutes.' }, 429);
+        }
+
         const partnerRaw = await env.LUNACYCLE_SYNC.get(partnerKey);
-        if (!partnerRaw) return json({ thread: null }, 200);
+        if (!partnerRaw) {
+          await env.LUNACYCLE_SYNC.put(rlKey, String(attempts + 1), {
+            expirationTtl: RATE_WINDOW_SECONDS,
+          });
+          return json({ thread: null }, 200);
+        }
         const partnerStored = JSON.parse(partnerRaw);
         const authorized = await isAuthorizedCareCaller(partnerStored);
         if (!authorized) {
+          await env.LUNACYCLE_SYNC.put(rlKey, String(attempts + 1), {
+            expirationTtl: RATE_WINDOW_SECONDS,
+          });
           return json({ error: 'Unauthorized' }, 401);
         }
         const rawCare = await env.LUNACYCLE_SYNC.get(careKey);

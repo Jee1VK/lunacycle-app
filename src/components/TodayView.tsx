@@ -94,6 +94,7 @@ export function TodayView({
 }: TodayViewProps) {
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [showMissedPillGuide, setShowMissedPillGuide] = useState(false);
+  const [sendingCareAction, setSendingCareAction] = useState(false);
   const activeTimer = data.settings.activeHygieneTimer;
 
   useEffect(() => {
@@ -373,9 +374,14 @@ export function TodayView({
                 key={rx}
                 type="button"
                 className="chip"
+                disabled={sendingCareAction}
                 aria-pressed={incomingCarePing.reaction === rx}
                 style={{ minHeight: 34, padding: '4px 10px', fontSize: '0.76rem' }}
-                onClick={() => onReactToCarePing(incomingCarePing.id, rx)}
+                onClick={() => {
+                  setSendingCareAction(true);
+                  onReactToCarePing(incomingCarePing.id, rx);
+                  window.setTimeout(() => setSendingCareAction(false), 1500);
+                }}
               >
                 {rx}
               </button>
@@ -402,8 +408,13 @@ export function TodayView({
                 key={req}
                 type="button"
                 className="chip"
+                disabled={sendingCareAction}
                 style={{ minHeight: 34, padding: '5px 10px', fontSize: '0.76rem' }}
-                onClick={() => onSendPrimaryCareRequest(req)}
+                onClick={() => {
+                  setSendingCareAction(true);
+                  onSendPrimaryCareRequest(req);
+                  window.setTimeout(() => setSendingCareAction(false), 1500);
+                }}
               >
                 {req}
               </button>
