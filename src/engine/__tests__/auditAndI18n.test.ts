@@ -95,5 +95,11 @@ describe('Audit regression tests', () => {
     expect(sanitized.settings.birthControlMode).toBe(true);
     expect(sanitized.settings.customSymptoms).toEqual(['Iron pill']);
     expect(sanitized.settings.pillPack.takenDates).toEqual(['2026-05-01']);
+
+    // Verify new burgundy & maroon themes persist cleanly
+    raw.settings.theme = 'burgundy';
+    expect(sanitizeLunaData(raw).settings.theme).toBe('burgundy');
+    raw.settings.theme = 'maroon';
+    expect(sanitizeLunaData(raw).settings.theme).toBe('maroon');
   });
 });

@@ -223,10 +223,21 @@ export function App() {
     return () => document.removeEventListener('visibilitychange', onVisChange);
   }, [pinConfig]);
 
-  // Sync theme & language attributes on <html>
+  // Sync theme, language & mobile status bar theme-color on <html>
   useEffect(() => {
     document.documentElement.dataset.theme = data.settings.theme;
     document.documentElement.lang = data.settings.language;
+    const themeMeta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+    if (themeMeta) {
+      const colorMap: Record<typeof data.settings.theme, string> = {
+        system: '#6B1D2F',
+        light: '#6B1D2F',
+        dark: '#141211',
+        burgundy: '#1A0B10',
+        maroon: '#6B1D2F',
+      };
+      themeMeta.content = colorMap[data.settings.theme] ?? '#6B1D2F';
+    }
   }, [data.settings.theme, data.settings.language]);
 
   // Sync page title & icon for Disguise Mode

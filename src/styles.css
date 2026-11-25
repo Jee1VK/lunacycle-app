@@ -101,6 +101,117 @@
   }
 }
 
+/* Velvet Burgundy Theme — Deep nocturnal Bordeaux satin + luminous rose & champagne gold */
+:root[data-theme='burgundy'] {
+  color-scheme: dark;
+  --color-brand-primary: #E68DA1;
+  --color-brand-primary-hover: #F0A3B4;
+  --color-brand-primary-soft: #3B1825;
+  --color-brand-primary-mid: #D1748A;
+  --color-brand-accent: #E5C37A;
+  --color-brand-accent-soft: #332719;
+  --color-brand-secondary: #7AC7AE;
+  --color-brand-secondary-soft: #162B25;
+
+  --color-canvas-base: #1A0B10;
+  --color-surface-card: #261118;
+  --color-surface-elevated: #331721;
+  --color-border-subtle: #4A2331;
+  --color-border-focus: #E5C37A;
+
+  --color-text-primary: #FAF2F4;
+  --color-text-secondary: #D9C2C8;
+  --color-text-muted: #B3929B;
+  --color-text-inverse: #1A0B10;
+
+  --shadow-card: 0 0 0 1px rgba(230, 141, 161, 0.08), 0 4px 12px rgba(0, 0, 0, 0.42), 0 12px 28px -6px rgba(10, 2, 5, 0.6);
+  --header-bg: rgba(26, 11, 16, 0.92);
+  --nav-bg: rgba(38, 17, 24, 0.96);
+  --hero-gradient: linear-gradient(180deg, #2E141D 0%, #210D14 100%);
+}
+
+/* Royal Maroon Theme — Warm silk-blush parchment + authentic Imperial Kumkum Maroon & burnished gold */
+:root[data-theme='maroon'] {
+  color-scheme: light;
+  --color-brand-primary: #6B1D2F;
+  --color-brand-primary-hover: #561423;
+  --color-brand-primary-soft: #EED9DF;
+  --color-brand-primary-mid: #8F2C43;
+  --color-brand-accent: #B88E3E;
+  --color-brand-accent-soft: #F7EEDB;
+  --color-brand-secondary: #1B4D3E;
+  --color-brand-secondary-soft: #E2EFEA;
+
+  --color-canvas-base: #F6ECEE;
+  --color-surface-card: #FFF9FA;
+  --color-surface-elevated: #EFE0E4;
+  --color-border-subtle: #DFC6CD;
+  --color-border-focus: #B88E3E;
+
+  --color-text-primary: #2A0E16;
+  --color-text-secondary: #5C3540;
+  --color-text-muted: #754C58;
+  --color-text-inverse: #FFFFFF;
+
+  --shadow-card: 0 0 0 1px rgba(107, 29, 47, 0.06), 0 2px 6px rgba(42, 14, 22, 0.05), 0 10px 24px -6px rgba(107, 29, 47, 0.12);
+  --header-bg: rgba(246, 236, 238, 0.92);
+  --nav-bg: rgba(255, 249, 250, 0.96);
+  --hero-gradient: linear-gradient(180deg, #FFF9FA 0%, #F7EAED 100%);
+}
+
+/* Tactile Theme Swatch Grid (emil-design-eng concentric radii + composite-only motion) */
+.theme-swatch-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.theme-swatch-card {
+  min-height: 54px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border-subtle);
+  background: var(--color-surface-card);
+  color: var(--color-text-primary);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  text-align: left;
+  transition: transform 150ms var(--ease-out), border-color 150ms ease, background-color 150ms ease;
+}
+
+.theme-swatch-card:hover {
+  border-color: var(--color-brand-accent);
+}
+
+.theme-swatch-card:active {
+  transform: scale(0.97);
+}
+
+.theme-swatch-card[aria-pressed='true'] {
+  border: 2px solid var(--color-brand-accent);
+  background: var(--color-surface-elevated);
+  box-shadow: 0 2px 8px rgba(107, 29, 47, 0.12);
+}
+
+.theme-swatch-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: rgba(128, 128, 128, 0.12);
+  flex-shrink: 0;
+}
+
+.theme-swatch-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 9999px;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+}
+
 *,
 *::before,
 *::after {

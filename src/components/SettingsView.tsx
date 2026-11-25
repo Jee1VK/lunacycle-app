@@ -163,24 +163,31 @@ export function SettingsView({
           Customize theme, language, and optional Simple / Teen Mode
         </p>
 
-        <div className="field-group" style={{ marginBottom: 12 }}>
-          <span className="field-label">Theme</span>
-          <div className="segmented" role="group" aria-label="Color theme">
+        <div className="field-group" style={{ marginBottom: 14 }}>
+          <span className="field-label">Color Theme</span>
+          <div className="theme-swatch-grid" role="group" aria-label="Color theme">
             {(
               [
-                { id: 'system', label: 'System' },
-                { id: 'light', label: 'Pearl Light' },
-                { id: 'dark', label: 'Warm Dark' },
+                { id: 'system', label: 'System Auto', dots: ['#FAFAF7', '#141211', '#C5A059'] },
+                { id: 'light', label: 'Pearl Light', dots: ['#FAFAF7', '#6B1D2F', '#C5A059'] },
+                { id: 'dark', label: 'Warm Dark', dots: ['#141211', '#D97C8F', '#E0BE78'] },
+                { id: 'burgundy', label: 'Velvet Burgundy', dots: ['#1A0B10', '#E68DA1', '#E5C37A'] },
+                { id: 'maroon', label: 'Royal Maroon', dots: ['#F6ECEE', '#6B1D2F', '#B88E3E'] },
               ] as const
             ).map((opt) => (
               <button
                 key={opt.id}
                 type="button"
-                className="segmented-btn"
+                className="theme-swatch-card"
                 aria-pressed={settings.theme === opt.id}
                 onClick={() => onUpdateSettings({ theme: opt.id })}
               >
-                {opt.label}
+                <span style={{ fontSize: '0.84rem', fontWeight: 600 }}>{opt.label}</span>
+                <span className="theme-swatch-dots" aria-hidden="true">
+                  {opt.dots.map((hex, idx) => (
+                    <span key={idx} className="theme-swatch-dot" style={{ background: hex }} />
+                  ))}
+                </span>
               </button>
             ))}
           </div>

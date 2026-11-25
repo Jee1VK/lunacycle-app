@@ -94,7 +94,7 @@ export interface ReminderSettings {
   customNotificationText: string;
 }
 
-export type ThemePreference = 'system' | 'light' | 'dark';
+export type ThemePreference = 'system' | 'light' | 'dark' | 'burgundy' | 'maroon';
 export type AppLanguage = 'en' | 'kn' | 'hi' | 'ta' | 'te';
 
 export interface UserSettings {
