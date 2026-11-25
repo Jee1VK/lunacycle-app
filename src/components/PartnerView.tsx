@@ -330,6 +330,7 @@ export function PartnerView({
       pinHash,
       syncServerUrl: connectUrl.trim(),
       partnerName: watchConfig?.partnerName ?? '',
+      syncPartnerTheme: watchConfig?.syncPartnerTheme ?? true,
       alertsOnThisPhone: watchConfig?.alertsOnThisPhone ?? true,
       dailyCheckinTime: watchConfig?.dailyCheckinTime ?? '18:30',
       lastFetchedAt: new Date().toISOString(),
@@ -1168,6 +1169,29 @@ export function PartnerView({
                 </div>
               ) : null}
             </div>
+            {/* Mirror Primary User's Theme Toggle */}
+            <label className="setting-row card-subtle" htmlFor="sync-partner-theme-switch" style={{ padding: '10px 14px', borderBottom: 'none' }}>
+              <div className="setting-label-wrap">
+                <span className="setting-title" style={{ fontSize: '0.86rem' }}>
+                  Match {watchedSnapshot.profileLabel}&apos;s Color Theme
+                </span>
+                <span className="setting-desc">
+                  Automatically reflects {watchedSnapshot.profileLabel}&apos;s chosen or custom theme colors
+                </span>
+              </div>
+              <input
+                id="sync-partner-theme-switch"
+                type="checkbox"
+                checked={watchConfig.syncPartnerTheme ?? true}
+                onChange={(e) =>
+                  onUpdateWatchConfig({
+                    ...watchConfig,
+                    syncPartnerTheme: e.target.checked,
+                  })
+                }
+                {...({ switch: '' } as Record<string, string>)}
+              />
+            </label>
           </div>
         )}
 

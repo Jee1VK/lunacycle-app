@@ -24,6 +24,12 @@ import {
 } from '../engine/nativeNotifications';
 import type { OtaUpdateState } from '../engine/otaUpdater';
 import { PILL_ALARM_TONE_OPTIONS, pillAlarmAudio } from '../engine/pillAlarmAudio';
+import {
+  CUSTOM_THEME_PRESETS,
+  DEFAULT_CUSTOM_THEME,
+  getContrastRatio,
+  sanitizeCustomTheme,
+} from '../engine/themeEngine';
 import { addDays, formatShortDate } from '../engine/temporal';
 import {
   getNotificationSupport,
@@ -187,6 +193,15 @@ export function SettingsView({
                 { id: 'dark', label: 'Warm Dark', dots: ['#141211', '#D97C8F', '#E0BE78'] },
                 { id: 'burgundy', label: 'Velvet Burgundy', dots: ['#1A0B10', '#E68DA1', '#E5C37A'] },
                 { id: 'maroon', label: 'Royal Maroon', dots: ['#F6ECEE', '#6B1D2F', '#B88E3E'] },
+                {
+                  id: 'custom',
+                  label: 'Custom Studio',
+                  dots: [
+                    sanitizeCustomTheme(settings.customTheme).canvas,
+                    sanitizeCustomTheme(settings.customTheme).primary,
+                    sanitizeCustomTheme(settings.customTheme).accent,
+                  ],
+                },
               ] as const
             ).map((opt) => (
               <button
@@ -194,7 +209,13 @@ export function SettingsView({
                 type="button"
                 className="theme-swatch-card"
                 aria-pressed={settings.theme === opt.id}
-                onClick={() => onUpdateSettings({ theme: opt.id })}
+                onClick={() =>
+                  onUpdateSettings(
+                    opt.id === 'custom'
+                      ? { theme: 'custom', customTheme: sanitizeCustomTheme(settings.customTheme) }
+                      : { theme: opt.id },
+                  )
+                }
               >
                 <span style={{ fontSize: '0.84rem', fontWeight: 600 }}>{opt.label}</span>
                 <span className="theme-swatch-dots" aria-hidden="true">
@@ -205,6 +226,117 @@ export function SettingsView({
               </button>
             ))}
           </div>
+
+          {settings.theme === 'custom' ? (() => {
+            const custom = sanitizeCustomTheme(settings.customTheme);
+            const btnTextContrast = Math.max(
+              getContrastRatio(custom.primary, '#FFFFFF'),
+              getContrastRatio(custom.primary, '#141211'),
+            );
+            const updateCustom = (patch: Partial<typeof custom>) => {
+              onUpdateSettings({
+                theme: 'custom',
+                customTheme: sanitizeCustomTheme({ ...custom, ...patch }),
+              });
+            };
+            return (
+              <div className="card-subtle" style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                  <strong style={{ fontSize: '0.86rem' }}>Custom Theme Studio</strong>
+                  <span className="phase-badge phase-badge--fertile tabular" style={{ fontSize: '0.7rem' }}>
+                    {btnTextContrast >= 4.5 ? `WCAG AA ${btnTextContrast}:1` : `Contrast ${btnTextContrast}:1`}
+                  </span>
+                </div>
+                <p className="section-caption">
+                  Your custom colors also sync automatically to your connected Partner&apos;s page.
+                </p>
+
+                <div className="segmented" style={{ gridTemplateColumns: '1fr 1fr' }} role="group" aria-label="Custom base surface">
+                  <button
+                    type="button"
+                    className="segmented-btn"
+                    aria-pressed={custom.baseMode === 'light'}
+                    onClick={() => updateCustom({ baseMode: 'light', canvas: '#FAFAF7' })}
+                  >
+                    Light Surface
+                  </button>
+                  <button
+                    type="button"
+                    className="segmented-btn"
+                    aria-pressed={custom.baseMode === 'dark'}
+                    onClick={() => updateCustom({ baseMode: 'dark', canvas: '#141211' })}
+                  >
+                    Dark Surface
+                  </button>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                  <label className="field-group">
+                    <span className="field-label" style={{ fontSize: '0.74rem' }}>Primary</span>
+                    <input
+                      type="color"
+                      aria-label="Custom primary color"
+                      value={custom.primary}
+                      onChange={(e) => updateCustom({ primary: e.target.value })}
+                      style={{ width: '100%', height: 42, borderRadius: 8, border: '1px solid var(--color-border-subtle)', padding: 2, background: 'var(--color-surface-card)', cursor: 'pointer' }}
+                    />
+                  </label>
+                  <label className="field-group">
+                    <span className="field-label" style={{ fontSize: '0.74rem' }}>Accent</span>
+                    <input
+                      type="color"
+                      aria-label="Custom accent color"
+                      value={custom.accent}
+                      onChange={(e) => updateCustom({ accent: e.target.value })}
+                      style={{ width: '100%', height: 42, borderRadius: 8, border: '1px solid var(--color-border-subtle)', padding: 2, background: 'var(--color-surface-card)', cursor: 'pointer' }}
+                    />
+                  </label>
+                  <label className="field-group">
+                    <span className="field-label" style={{ fontSize: '0.74rem' }}>Background</span>
+                    <input
+                      type="color"
+                      aria-label="Custom background color"
+                      value={custom.canvas}
+                      onChange={(e) => updateCustom({ canvas: e.target.value })}
+                      style={{ width: '100%', height: 42, borderRadius: 8, border: '1px solid var(--color-border-subtle)', padding: 2, background: 'var(--color-surface-card)', cursor: 'pointer' }}
+                    />
+                  </label>
+                </div>
+
+                <div className="chip-group">
+                  {CUSTOM_THEME_PRESETS.map((preset) => (
+                    <button
+                      key={preset.name}
+                      type="button"
+                      className="chip"
+                      style={{ minHeight: 34, padding: '4px 10px', fontSize: '0.76rem' }}
+                      onClick={() => updateCustom(preset.colors)}
+                    >
+                      <span
+                        aria-hidden="true"
+                        style={{
+                          width: 10,
+                          height: 10,
+                          borderRadius: 9999,
+                          background: preset.colors.primary,
+                          display: 'inline-block',
+                        }}
+                      />
+                      {preset.name}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    className="chip"
+                    style={{ minHeight: 34, padding: '4px 10px', fontSize: '0.76rem' }}
+                    onClick={() => updateCustom(DEFAULT_CUSTOM_THEME)}
+                  >
+                    Reset
+                  </button>
+                </div>
+              </div>
+            );
+          })() : null}
         </div>
 
         <div className="field-group" style={{ marginBottom: 12 }}>

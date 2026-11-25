@@ -91,6 +91,7 @@ import {
   computeActiveReminders,
   dispatchGentleBrowserNotification,
 } from './engine/reminders';
+import { applyThemeToDocument } from './engine/themeEngine';
 import { todayPlainDate } from './engine/temporal';
 import type {
   DailyLog,
@@ -214,13 +215,14 @@ export function App() {
 
         if (cfg?.enabled) {
           setPinConfig(cfg);
-          if (cfg.disguiseMode || cfg.theme) {
+          if (cfg.disguiseMode || cfg.theme || cfg.customTheme) {
             setData((prev) => ({
               ...prev,
               settings: {
                 ...prev.settings,
                 disguiseMode: Boolean(cfg.disguiseMode),
                 theme: cfg.theme ?? prev.settings.theme,
+                customTheme: cfg.customTheme ?? prev.settings.customTheme,
               },
             }));
           }
@@ -257,22 +259,34 @@ export function App() {
     return () => document.removeEventListener('visibilitychange', onVisChange);
   }, [pinConfig]);
 
-  // Sync theme, language & mobile status bar theme-color on <html>
+  // Sync theme (including Custom Theme Studio & live Primary->Partner theme mirroring), language & status bar
   useEffect(() => {
-    document.documentElement.dataset.theme = data.settings.theme;
+    const mirrorPartnerTheme =
+      !locked &&
+      Boolean(watchedPartnerSnapshot?.theme) &&
+      (partnerWatchConfig?.syncPartnerTheme ?? true) &&
+      (Boolean(data.settings.partnerOnlyMode) || activeTab === 'partner');
+
+    const effectiveTheme = mirrorPartnerTheme
+      ? watchedPartnerSnapshot!.theme!
+      : data.settings.theme;
+    const effectiveCustom = mirrorPartnerTheme
+      ? watchedPartnerSnapshot!.customTheme
+      : data.settings.customTheme;
+
+    applyThemeToDocument(effectiveTheme, effectiveCustom);
     document.documentElement.lang = data.settings.language;
-    const themeMeta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
-    if (themeMeta) {
-      const colorMap: Record<typeof data.settings.theme, string> = {
-        system: '#6B1D2F',
-        light: '#6B1D2F',
-        dark: '#141211',
-        burgundy: '#1A0B10',
-        maroon: '#6B1D2F',
-      };
-      themeMeta.content = colorMap[data.settings.theme] ?? '#6B1D2F';
-    }
-  }, [data.settings.theme, data.settings.language]);
+  }, [
+    locked,
+    activeTab,
+    data.settings.theme,
+    data.settings.customTheme,
+    data.settings.language,
+    data.settings.partnerOnlyMode,
+    partnerWatchConfig?.syncPartnerTheme,
+    watchedPartnerSnapshot?.theme,
+    watchedPartnerSnapshot?.customTheme,
+  ]);
 
   // Sync page title & icon for Disguise Mode
   useEffect(() => {
@@ -648,11 +662,17 @@ export function App() {
         : data.settings.reminders,
     };
     void persistData({ ...data, settings: nextSettings });
-    if (pinConfig?.enabled && (patch.disguiseMode !== undefined || patch.theme !== undefined)) {
+    if (
+      pinConfig?.enabled &&
+      (patch.disguiseMode !== undefined ||
+        patch.theme !== undefined ||
+        patch.customTheme !== undefined)
+    ) {
       const updatedPinCfg: PinLockConfig = {
         ...pinConfig,
         disguiseMode: nextSettings.disguiseMode,
         theme: nextSettings.theme,
+        customTheme: nextSettings.customTheme,
       };
       setPinConfig(updatedPinCfg);
       void savePinConfig(updatedPinCfg);
@@ -948,6 +968,7 @@ export function App() {
     const cfg = await createPinConfig(pin, true);
     cfg.disguiseMode = data.settings.disguiseMode;
     cfg.theme = data.settings.theme;
+    cfg.customTheme = data.settings.customTheme;
     await savePinConfig(cfg);
     await saveLunaData(data, pin);
     setPinConfig(cfg);

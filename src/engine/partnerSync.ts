@@ -233,6 +233,8 @@ export function buildPartnerSnapshot(
         : undefined,
     pillRefillNeeded,
     pillDaysRemaining,
+    theme: data.settings.theme,
+    customTheme: data.settings.theme === 'custom' ? data.settings.customTheme : undefined,
     pregnancy: summary.pregnancy,
     upcomingDays,
     pinHash: config.pinHash,

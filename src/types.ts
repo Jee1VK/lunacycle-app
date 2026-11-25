@@ -127,8 +127,15 @@ export interface ReminderSettings {
   customNotificationText: string;
 }
 
-export type ThemePreference = 'system' | 'light' | 'dark' | 'burgundy' | 'maroon';
+export type ThemePreference = 'system' | 'light' | 'dark' | 'burgundy' | 'maroon' | 'custom';
 export type AppLanguage = 'en' | 'kn' | 'hi' | 'ta' | 'te';
+
+export interface CustomThemeColors {
+  baseMode: 'light' | 'dark';
+  primary: string; // #RRGGBB
+  accent: string; // #RRGGBB
+  canvas: string; // #RRGGBB
+}
 
 export interface UserSettings {
   mode: TrackingMode;
@@ -136,6 +143,7 @@ export interface UserSettings {
   simpleMode: boolean;
   partnerOnlyMode?: boolean;
   theme: ThemePreference;
+  customTheme?: CustomThemeColors;
   language: AppLanguage;
   defaultCycleLength: number;
   defaultPeriodLength: number;
@@ -231,6 +239,7 @@ export interface PinLockConfig {
   biometricEnabled?: boolean;
   disguiseMode?: boolean;
   theme?: ThemePreference;
+  customTheme?: CustomThemeColors;
 }
 
 export interface PartnerSharePermissions {
@@ -260,6 +269,7 @@ export interface PartnerWatchConfig {
   pinHash?: string;
   syncServerUrl: string;
   partnerName?: string; // Sender name for Care Pings
+  syncPartnerTheme?: boolean; // Automatically reflect primary user's chosen/custom theme (default true)
   alertsOnThisPhone: boolean;
   dailyCheckinTime?: string; // HH:mm evening partner check-in reminder
   lastFetchedAt?: string;
@@ -290,6 +300,8 @@ export interface PartnerSnapshot {
   comfortPreferences?: string[];
   pillRefillNeeded?: boolean;
   pillDaysRemaining?: number;
+  theme?: ThemePreference;
+  customTheme?: CustomThemeColors;
   pregnancy?: PregnancySummary | null;
   upcomingDays?: Array<{ date: string; phase: CyclePhase }>;
   pinHash?: string;
@@ -302,6 +314,12 @@ export const DEFAULT_SETTINGS: UserSettings = {
   simpleMode: false,
   partnerOnlyMode: false,
   theme: 'system',
+  customTheme: {
+    baseMode: 'light',
+    primary: '#6B1D2F',
+    accent: '#C5A059',
+    canvas: '#FAFAF7',
+  },
   language: 'en',
   defaultCycleLength: 28,
   defaultPeriodLength: 5,
