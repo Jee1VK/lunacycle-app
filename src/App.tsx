@@ -123,6 +123,8 @@ export function App() {
   const [partnerWatchConfig, setPartnerWatchConfig] = useState<PartnerWatchConfig | null>(null);
   const [watchedPartnerSnapshot, setWatchedPartnerSnapshot] = useState<PartnerSnapshot | null>(null);
   const [incomingCarePing, setIncomingCarePing] = useState<PartnerCarePing | null>(null);
+  const [prefillPartnerCode, setPrefillPartnerCode] = useState<string | null>(null);
+  const [partnerPinAuthError, setPartnerPinAuthError] = useState(false);
 
   const [activeTab, setActiveTab] = useState<TabId>('today');
   const [calendarEditInit, setCalendarEditInit] = useState(false);
@@ -366,6 +368,9 @@ export function App() {
     partnerShareConfig.permissions.shareFertileWindow,
     partnerShareConfig.permissions.shareSymptomsAndMood,
     partnerShareConfig.permissions.shareUpcomingForecast,
+    partnerShareConfig.permissions.sharePillRefillStatus,
+    partnerShareConfig.todayNeedStatus,
+    partnerShareConfig.comfortPreferences,
   ]);
 
   // Poll for encrypted two-way Partner Care Pings when sharing is enabled
@@ -412,17 +417,29 @@ export function App() {
     data.settings.disguiseMode,
   ]);
 
-  // Handle Android / PWA App Icon Long-Press Shortcuts (?action=log-period | take-pill | log-symptoms)
+  // Handle Android / PWA App Icon Long-Press Shortcuts (?action=...) & Partner Deep-Link (?partner=CODE)
   const shortcutHandledRef = useRef(false);
   useEffect(() => {
     if (!ready || locked || shortcutHandledRef.current) return;
     const params = new URLSearchParams(window.location.search);
     const action = params.get('action');
-    if (!action) return;
+    const partnerCodeParam = params.get('partner');
+    if (!action && !partnerCodeParam) return;
     shortcutHandledRef.current = true;
     params.delete('action');
+    params.delete('partner');
     const cleanUrl = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}${window.location.hash}`;
     window.history.replaceState({}, '', cleanUrl);
+
+    if (partnerCodeParam) {
+      const clean = partnerCodeParam.replace(/\s+/g, '').toUpperCase();
+      if (/^[A-Z0-9]{6}$/.test(clean)) {
+        setPrefillPartnerCode(clean);
+        setActiveTab('partner');
+        showToast(`Partner Code ${clean} pre-filled — tap Connect Live!`);
+        return;
+      }
+    }
 
     if (action === 'log-period') {
       handleQuickTogglePeriodToday();
@@ -444,15 +461,22 @@ export function App() {
 
     const refresh = async () => {
       const res = await fetchPartnerSnapshot(partnerWatchConfig);
-      if (cancelled || !res.snapshot) return;
+      if (cancelled) return;
+      if (!res.snapshot) {
+        if (res.pinRequired) {
+          setPartnerPinAuthError(true);
+        }
+        return;
+      }
+      setPartnerPinAuthError(false);
       setWatchedPartnerSnapshot(res.snapshot);
       void saveCachedPartnerSnapshotToVault(res.snapshot);
 
-      // Fire immediate symptom/phase care cue when enabled
-      if (partnerWatchConfig.alertsOnThisPhone) {
+      // Fire immediate symptom/phase care cue ONLY if snapshot is from today (prevents daily re-alerts on stale snapshots)
+      if (partnerWatchConfig.alertsOnThisPhone && res.snapshot.asOfDate === today) {
         const immediate = buildImmediatePartnerCareAlert(res.snapshot);
         if (immediate) {
-          const key = `luna_partner_care_${today}_${immediate.id}`;
+          const key = `luna_partner_care_${res.snapshot.asOfDate}_${immediate.id}`;
           if (!sessionStorage.getItem(key)) {
             sessionStorage.setItem(key, '1');
             dispatchGentleBrowserNotification(
@@ -1115,6 +1139,9 @@ export function App() {
             onUpdateWatchConfig={handleUpdatePartnerWatchConfig}
             watchedSnapshot={watchedPartnerSnapshot}
             onUpdateWatchedSnapshot={handleUpdateWatchedPartnerSnapshot}
+            prefillPartnerCode={prefillPartnerCode}
+            pinAuthError={partnerPinAuthError}
+            onClearPinAuthError={() => setPartnerPinAuthError(false)}
             onNotify={showToast}
           />
         ) : null}

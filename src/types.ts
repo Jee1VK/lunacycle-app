@@ -227,6 +227,7 @@ export interface PartnerSharePermissions {
   shareFertileWindow: boolean;
   shareSymptomsAndMood: boolean;
   shareUpcomingForecast: boolean;
+  sharePillRefillStatus?: boolean;
 }
 
 export interface PartnerShareConfig {
@@ -238,6 +239,8 @@ export interface PartnerShareConfig {
   pinHash?: string;
   syncServerUrl: string;
   permissions: PartnerSharePermissions;
+  todayNeedStatus?: string; // 1-tap "What I need today" beacon
+  comfortPreferences?: string[]; // Personal "What helps me" comfort list
   lastSyncedAt?: string;
 }
 
@@ -246,6 +249,7 @@ export interface PartnerWatchConfig {
   pin?: string; // Kept locally in IndexedDB to decrypt E2EE snapshots
   pinHash?: string;
   syncServerUrl: string;
+  partnerName?: string; // Sender name for Care Pings
   alertsOnThisPhone: boolean;
   dailyCheckinTime?: string; // HH:mm evening partner check-in reminder
   lastFetchedAt?: string;
@@ -270,7 +274,12 @@ export interface PartnerSnapshot {
   fertileStartDate?: string | null;
   fertileEndDate?: string | null;
   todaySymptoms?: SymptomId[];
+  todayCustomSymptoms?: string[];
   todayMoods?: MoodId[];
+  todayNeedStatus?: string;
+  comfortPreferences?: string[];
+  pillRefillNeeded?: boolean;
+  pillDaysRemaining?: number;
   pregnancy?: PregnancySummary | null;
   upcomingDays?: Array<{ date: string; phase: CyclePhase }>;
   pinHash?: string;

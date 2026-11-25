@@ -9,6 +9,7 @@ import type {
 } from '../types';
 import { PHASE_INFO, SYMPTOM_LABEL_MAP } from './catalog';
 import { classifyDate } from './cycleEngine';
+import { computePillPackStatus } from './hygieneTimer';
 import { addDays, formatShortDate } from './temporal';
 
 export const DEFAULT_PARTNER_SYNC_URL: string =
@@ -157,13 +158,17 @@ export function createDefaultPartnerShareConfig(): PartnerShareConfig {
       shareFertileWindow: true,
       shareSymptomsAndMood: true,
       shareUpcomingForecast: true,
+      sharePillRefillStatus: false,
     },
+    todayNeedStatus: '',
+    comfortPreferences: ['Warm tea / chai', 'Heating pad', 'Quiet evening'],
   };
 }
 
 /**
  * Builds a strictly privacy-scoped snapshot for the connected partner.
  * NEVER includes private journal notes, BBT decimals, LH strip results, or intimacy logs.
+ * Strictly masks fertile/ovulation phases when shareFertileWindow is disabled.
  */
 export function buildPartnerSnapshot(
   config: PartnerShareConfig,
@@ -174,14 +179,30 @@ export function buildPartnerSnapshot(
 ): PartnerSnapshot {
   const todayLog = data.logs[summary.today];
   const { permissions } = config;
+  const maskFertilePhase = (phase: PartnerSnapshot['phase']): PartnerSnapshot['phase'] => {
+    if (!permissions.shareFertileWindow && (phase === 'fertile' || phase === 'ovulation')) {
+      return 'follicular';
+    }
+    return phase;
+  };
 
   const upcomingDays = permissions.shareUpcomingForecast
     ? Array.from({ length: 14 }, (_, idx) => {
         const d = addDays(summary.today, idx);
         const c = classifyDate(d, data.logs, stats, data.settings, summary.today);
-        return { date: d, phase: c.phase };
+        return { date: d, phase: maskFertilePhase(c.phase) };
       })
     : undefined;
+
+  let pillRefillNeeded: boolean | undefined;
+  let pillDaysRemaining: number | undefined;
+  if (permissions.sharePillRefillStatus && data.settings.pillPack.enabled && !data.settings.simpleMode) {
+    const latestPeriodStart =
+      stats.periods.length > 0 ? stats.periods[stats.periods.length - 1].startDate : null;
+    const pillStatus = computePillPackStatus(data.settings.pillPack, summary.today, latestPeriodStart);
+    pillRefillNeeded = pillStatus.needsRefill;
+    pillDaysRemaining = pillStatus.daysRemainingInPack;
+  }
 
   return {
     version: 1,
@@ -190,7 +211,7 @@ export function buildPartnerSnapshot(
     updatedAt: now.toISOString(),
     asOfDate: summary.today,
     mode: summary.mode,
-    phase: summary.phase,
+    phase: maskFertilePhase(summary.phase),
     cycleDay: summary.cycleDay,
     averageCycleLength: stats.averageCycleLength,
     daysUntilNextPeriod: summary.daysUntilNextPeriod,
@@ -202,7 +223,15 @@ export function buildPartnerSnapshot(
     fertileStartDate: permissions.shareFertileWindow ? summary.fertileStartDate : null,
     fertileEndDate: permissions.shareFertileWindow ? summary.fertileEndDate : null,
     todaySymptoms: permissions.shareSymptomsAndMood ? (todayLog?.symptoms ?? []) : undefined,
+    todayCustomSymptoms: permissions.shareSymptomsAndMood ? (todayLog?.customSymptoms ?? []) : undefined,
     todayMoods: permissions.shareSymptomsAndMood ? (todayLog?.moods ?? []) : undefined,
+    todayNeedStatus: config.todayNeedStatus?.trim() || undefined,
+    comfortPreferences:
+      config.comfortPreferences && config.comfortPreferences.length > 0
+        ? config.comfortPreferences
+        : undefined,
+    pillRefillNeeded,
+    pillDaysRemaining,
     pregnancy: summary.pregnancy,
     upcomingDays,
     pinHash: config.pinHash,
@@ -228,14 +257,127 @@ export function buildPartnerTextSummary(snapshot: PartnerSnapshot): string {
   } else if (snapshot.nextPeriodDate && snapshot.daysUntilNextPeriod !== null) {
     parts.push(`Next period in ${snapshot.daysUntilNextPeriod}d (${formatShortDate(snapshot.nextPeriodDate)})`);
   }
-  if (snapshot.todaySymptoms && snapshot.todaySymptoms.length > 0) {
-    const top = snapshot.todaySymptoms
-      .slice(0, 3)
-      .map((s) => SYMPTOM_LABEL_MAP[s])
-      .join(', ');
-    parts.push(`Feeling: ${top}`);
+  const allSymptoms = [
+    ...(snapshot.todaySymptoms ?? []).map((s) => SYMPTOM_LABEL_MAP[s]).filter(Boolean),
+    ...(snapshot.todayCustomSymptoms ?? []),
+  ];
+  if (allSymptoms.length > 0) {
+    parts.push(`Feeling: ${allSymptoms.slice(0, 3).join(', ')}`);
   }
   return parts.join(' · ') + '.';
+}
+
+export interface PartnerBodyForecast {
+  energy: number; // 1..5
+  moodSensitivity: number; // 1..5 (5 = extra tender/sensitive)
+  socialBattery: number; // 1..5
+  hormoneLine: string;
+  planningCue: string;
+}
+
+export function getPartnerDailyBodyForecast(snapshot: PartnerSnapshot): PartnerBodyForecast {
+  if (snapshot.mode === 'pregnancy' && snapshot.pregnancy) {
+    const tri = snapshot.pregnancy.trimester;
+    return tri === 1
+      ? {
+          energy: 2,
+          moodSensitivity: 4,
+          socialBattery: 2,
+          hormoneLine: 'Early pregnancy hormones (hCG & progesterone) surge rapidly — fatigue and nausea are very common.',
+          planningCue: 'Keep evenings quiet, bring light snacks, and take over kitchen/house errands.',
+        }
+      : tri === 2
+        ? {
+            energy: 4,
+            moodSensitivity: 2,
+            socialBattery: 4,
+            hormoneLine: 'Second-trimester hormones settle — energy and comfort often rebound nicely.',
+            planningCue: 'Great window for gentle walks, dates, and planning baby prep together.',
+          }
+        : {
+            energy: 2,
+            moodSensitivity: 3,
+            socialBattery: 2,
+            hormoneLine: 'Third-trimester physical load peaks — sleep and lower back comfort need extra care.',
+            planningCue: 'Prioritize rest, foot/back rubs, and easy at-home plans.',
+          };
+  }
+
+  switch (snapshot.phase) {
+    case 'menstrual':
+    case 'predicted_period':
+      return {
+        energy: 2,
+        moodSensitivity: 4,
+        socialBattery: 2,
+        hormoneLine: 'Estrogen and progesterone are at their lowest — her body is working hard shedding the uterine lining.',
+        planningCue: 'Cozy night in, warm food/tea, heating pad, and zero social pressure.',
+      };
+    case 'fertile':
+    case 'ovulation':
+      return {
+        energy: 5,
+        moodSensitivity: 2,
+        socialBattery: 5,
+        hormoneLine: 'Estrogen peaks around ovulation — energy, warmth, and social confidence are typically at their highest.',
+        planningCue: 'Ideal window for dinner dates, outings, or unhurried quality time together.',
+      };
+    case 'luteal': {
+      const nearPeriod = snapshot.daysUntilNextPeriod !== null && snapshot.daysUntilNextPeriod <= 5;
+      return {
+        energy: nearPeriod ? 2 : 3,
+        moodSensitivity: nearPeriod ? 4 : 3,
+        socialBattery: nearPeriod ? 2 : 3,
+        hormoneLine: nearPeriod
+          ? 'Progesterone is dipping ahead of her period (PMS window) — energy and patience can feel thinner.'
+          : 'Progesterone rises in the luteal phase — her body craves steady meals, calm routines, and good sleep.',
+        planningCue: nearPeriod
+          ? 'Keep plans light, listen with extra warmth, and surprise her with a favorite comfort.'
+          : 'Balanced low-key evenings, steady dinners, and early rest work best.',
+      };
+    }
+    default:
+      return {
+        energy: 4,
+        moodSensitivity: 2,
+        socialBattery: 4,
+        hormoneLine: 'Estrogen is steadily rising in the follicular phase — clarity, energy, and mood usually lift.',
+        planningCue: 'Great time for weekend plans, walks, or tackling shared projects together.',
+      };
+  }
+}
+
+export function getPartnerKeyUpcomingDates(
+  snapshot: PartnerSnapshot,
+): Array<{ label: string; date: string; cue: string }> {
+  if (snapshot.mode === 'pregnancy') return [];
+  const items: Array<{ label: string; date: string; cue: string }> = [];
+
+  if (snapshot.nextPeriodDate) {
+    const pmsStart = addDays(snapshot.nextPeriodDate, -4);
+    if (pmsStart >= snapshot.asOfDate) {
+      items.push({
+        label: 'PMS Window Starts',
+        date: pmsStart,
+        cue: 'Keep evenings lighter & stock favorite comfort snacks',
+      });
+    }
+    if (snapshot.nextPeriodDate >= snapshot.asOfDate) {
+      items.push({
+        label: 'Expected Period',
+        date: snapshot.nextPeriodDate,
+        cue: 'Warm meals, heating pad, and extra rest',
+      });
+    }
+  }
+  if (snapshot.fertileStartDate && snapshot.fertileStartDate >= snapshot.asOfDate) {
+    items.push({
+      label: snapshot.mode === 'ttc' ? 'Fertile Window Opens' : 'High-Energy Window',
+      date: snapshot.fertileStartDate,
+      cue: snapshot.mode === 'ttc' ? 'Calm, unhurried time together' : 'Great week for dinner out or outings',
+    });
+  }
+  return items.sort((a, b) => a.date.localeCompare(b.date)).slice(0, 3);
 }
 
 export function getPartnerSupportTips(snapshot: PartnerSnapshot): string[] {

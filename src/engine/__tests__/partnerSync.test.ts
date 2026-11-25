@@ -123,4 +123,26 @@ describe('partnerSync engine', () => {
     expect(dec.message).toBe(ping.message);
     await expect(decryptPartnerCarePing(env, 'KUB789', '0000')).rejects.toThrow();
   });
+
+  it('strictly masks fertile/ovulation phases in phase & upcomingDays when shareFertileWindow is false', () => {
+    const data = createInitialData();
+    data.logs['2026-05-01'] = { ...createEmptyLog('2026-05-01'), flow: 'medium' };
+    const stats = computeCycleStats(data.logs, data.settings);
+    // 2026-05-15 is estimated ovulation day for a 28-day cycle starting May 1
+    const summary = computeTodaySummary('2026-05-15', data.logs, stats, data.settings);
+    expect(summary.phase).toBe('ovulation');
+
+    const cfg = createDefaultPartnerShareConfig();
+    cfg.permissions.shareFertileWindow = false;
+    cfg.permissions.shareUpcomingForecast = true;
+    cfg.todayNeedStatus = "I'd love a hug";
+    cfg.comfortPreferences = ['Warm tea / chai', 'Heating pad'];
+
+    const snap = buildPartnerSnapshot(cfg, data, stats, summary);
+    expect(snap.phase).toBe('follicular');
+    expect(snap.ovulationDate).toBeNull();
+    expect(snap.upcomingDays?.some((d) => d.phase === 'fertile' || d.phase === 'ovulation')).toBe(false);
+    expect(snap.todayNeedStatus).toBe("I'd love a hug");
+    expect(snap.comfortPreferences).toEqual(['Warm tea / chai', 'Heating pad']);
+  });
 });

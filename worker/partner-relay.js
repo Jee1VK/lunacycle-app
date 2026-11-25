@@ -85,15 +85,32 @@ export default {
       const secretHeader = request.headers.get('X-LunaCycle-Write-Secret') || '';
 
       if (request.method === 'PUT') {
+        const clientIp = request.headers.get('CF-Connecting-IP') || 'unknown';
+        const rlKey = `rl:${clientIp}:${code}`;
+        const attempts = Number((await env.LUNACYCLE_SYNC.get(rlKey)) || '0');
+        if (attempts >= MAX_FAILED_ATTEMPTS) {
+          return json({ error: 'Too many failed attempts. Please wait 15 minutes.' }, 429);
+        }
+
         const readRes = await readBoundedText(request, MAX_BODY_BYTES);
         if (readRes.error) return json({ error: readRes.error }, readRes.status);
 
         const partnerRaw = await env.LUNACYCLE_SYNC.get(partnerKey);
-        if (!partnerRaw) return json({ error: 'Partner code not found' }, 404);
+        if (!partnerRaw) {
+          await env.LUNACYCLE_SYNC.put(rlKey, String(attempts + 1), {
+            expirationTtl: RATE_WINDOW_SECONDS,
+          });
+          return json({ error: 'Partner code not found' }, 404);
+        }
         const partnerStored = JSON.parse(partnerRaw);
         if (partnerStored.pinHash) {
           const validPin = await constantTimeEqual(partnerStored.pinHash, pinHeader);
-          if (!validPin) return json({ error: 'Invalid PIN' }, 401);
+          if (!validPin) {
+            await env.LUNACYCLE_SYNC.put(rlKey, String(attempts + 1), {
+              expirationTtl: RATE_WINDOW_SECONDS,
+            });
+            return json({ error: 'Invalid PIN' }, 401);
+          }
         }
 
         let body = null;
@@ -127,12 +144,13 @@ export default {
 
       if (request.method === 'DELETE') {
         const partnerRaw = await env.LUNACYCLE_SYNC.get(partnerKey);
-        if (partnerRaw) {
-          const partnerStored = JSON.parse(partnerRaw);
-          if (partnerStored.writeSecret) {
-            const validSecret = await constantTimeEqual(partnerStored.writeSecret, secretHeader);
-            if (!validSecret) return json({ error: 'Unauthorized writeSecret' }, 403);
-          }
+        if (!partnerRaw) {
+          return json({ error: 'Partner code not found' }, 404);
+        }
+        const partnerStored = JSON.parse(partnerRaw);
+        if (partnerStored.writeSecret) {
+          const validSecret = await constantTimeEqual(partnerStored.writeSecret, secretHeader);
+          if (!validSecret) return json({ error: 'Unauthorized writeSecret' }, 403);
         }
         await env.LUNACYCLE_SYNC.delete(careKey);
         return json({ ok: true }, 200);
@@ -226,7 +244,10 @@ export default {
           return json({ error: 'Unauthorized writeSecret' }, 403);
         }
       }
-      await env.LUNACYCLE_SYNC.delete(key);
+      await Promise.all([
+        env.LUNACYCLE_SYNC.delete(key),
+        env.LUNACYCLE_SYNC.delete(`care:${code}`),
+      ]);
       return json({ ok: true, deleted: true }, 200);
     }
 

@@ -79,34 +79,44 @@ export function buildImmediatePartnerCareAlert(snapshot: PartnerSnapshot): Partn
  * Generates upcoming scheduled partner care notifications (PMS window, period tomorrow,
  * fertile/high-energy window) so Android OS can fire them even when the app is closed.
  */
-export function buildScheduledPartnerCareAlerts(snapshot: PartnerSnapshot): PartnerCareAlert[] {
+export function buildScheduledPartnerCareAlerts(
+  snapshot: PartnerSnapshot,
+  today?: string,
+): PartnerCareAlert[] {
   if (snapshot.mode === 'pregnancy') return [];
   const name = snapshot.profileLabel || 'your partner';
+  const minDate = today || snapshot.asOfDate;
   const list: PartnerCareAlert[] = [];
 
   if (snapshot.nextPeriodDate) {
     // 3 days before predicted period -> PMS window heads-up
-    list.push({
-      id: 'partner-pms',
-      title: `PMS window starting for ${name}`,
-      body: 'Extra patience, comfort snacks, and lighter evening plans go a long way over the next few days.',
-      scheduleDate: addDays(snapshot.nextPeriodDate, -3),
-      hour: 9,
-      minute: 0,
-    });
+    const pmsDate = addDays(snapshot.nextPeriodDate, -3);
+    if (pmsDate >= minDate) {
+      list.push({
+        id: 'partner-pms',
+        title: `PMS window starting for ${name}`,
+        body: 'Extra patience, comfort snacks, and lighter evening plans go a long way over the next few days.',
+        scheduleDate: pmsDate,
+        hour: 9,
+        minute: 0,
+      });
+    }
 
     // 1 day before predicted period -> Period prep reminder
-    list.push({
-      id: 'partner-period-tomorrow',
-      title: `${name}'s period expected tomorrow`,
-      body: 'Check that comfort essentials, warm drinks, and a flexible evening are ready.',
-      scheduleDate: addDays(snapshot.nextPeriodDate, -1),
-      hour: 9,
-      minute: 0,
-    });
+    const tomorrowDate = addDays(snapshot.nextPeriodDate, -1);
+    if (tomorrowDate >= minDate) {
+      list.push({
+        id: 'partner-period-tomorrow',
+        title: `${name}'s period expected tomorrow`,
+        body: 'Check that comfort essentials, warm drinks, and a flexible evening are ready.',
+        scheduleDate: tomorrowDate,
+        hour: 9,
+        minute: 0,
+      });
+    }
   }
 
-  if (snapshot.fertileStartDate) {
+  if (snapshot.fertileStartDate && snapshot.fertileStartDate >= minDate) {
     list.push({
       id: 'partner-fertile-start',
       title: `High-energy window for ${name}`,

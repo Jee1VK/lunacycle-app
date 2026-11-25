@@ -177,9 +177,17 @@ export function PartnerDiscoverSection({
   const partnerName = watchedSnapshot?.profileLabel ?? 'Her';
   const phaseInfo = PHASE_INFO[phase];
 
+  const storageKey = `luna_partner_checkin_${today}`;
   const [herDayOpen, setHerDayOpen] = useState(false);
   const [checkinOpen, setCheckinOpen] = useState(false);
-  const [checkedIds, setCheckedIds] = useState<string[]>([]);
+  const [checkedIds, setCheckedIds] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      return raw ? (JSON.parse(raw) as string[]) : [];
+    } catch {
+      return [];
+    }
+  });
   const [wheelOpen, setWheelOpen] = useState(false);
   const [wheelAngle, setWheelAngle] = useState(0);
   const [spinning, setSpinning] = useState(false);
@@ -205,9 +213,15 @@ export function PartnerDiscoverSection({
   };
 
   const toggleCheck = (id: string) => {
-    setCheckedIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
-    );
+    setCheckedIds((prev) => {
+      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(next));
+      } catch {
+        // Ignore storage errors
+      }
+      return next;
+    });
   };
 
   return (
@@ -312,7 +326,7 @@ export function PartnerDiscoverSection({
       {/* MODAL: Her Day Today */}
       <ModalDialog
         open={herDayOpen}
-        title={`${watchedSnapshot ? partnerName : 'Her'}'s Day Today`}
+        title={watchedSnapshot ? `${partnerName}'s Day Today` : 'Her Day Today'}
         subtitle={`${formatShortDate(watchedSnapshot?.asOfDate ?? today)} · ${phaseInfo.title}`}
         onClose={() => setHerDayOpen(false)}
         footer={

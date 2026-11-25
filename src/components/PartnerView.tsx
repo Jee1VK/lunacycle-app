@@ -1,11 +1,17 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Baby,
   BellRing,
+  Calendar,
   Check,
   Copy,
   Droplets,
+  Eye,
+  EyeOff,
+  Heart,
   HeartHandshake,
+  Link2,
+  Pill,
   RefreshCw,
   Send,
   Share2,
@@ -36,12 +42,14 @@ import {
   deletePartnerSnapshot,
   fetchPartnerSnapshot,
   generatePartnerCode,
+  getPartnerDailyBodyForecast,
+  getPartnerKeyUpcomingDates,
   getPartnerSupportTips,
   hashPartnerPin,
   pushPartnerCarePing,
   pushPartnerSnapshot,
 } from '../engine/partnerSync';
-import { formatShortDate, formatWeekdayShort, getDayOfMonth } from '../engine/temporal';
+import { daysBetween, formatShortDate, formatWeekdayShort, getDayOfMonth } from '../engine/temporal';
 import type {
   CycleStats,
   LunaData,
@@ -62,8 +70,28 @@ interface PartnerViewProps {
   onUpdateWatchConfig: (cfg: PartnerWatchConfig | null) => void;
   watchedSnapshot: PartnerSnapshot | null;
   onUpdateWatchedSnapshot: (snap: PartnerSnapshot | null) => void;
+  prefillPartnerCode?: string | null;
+  pinAuthError?: boolean;
+  onClearPinAuthError?: () => void;
   onNotify: (msg: string) => void;
 }
+
+const NEED_BEACON_OPTIONS = [
+  "I'd love a hug",
+  'Need quiet space',
+  'Bring warm tea / snacks',
+  'Low battery today',
+  'Feeling great!',
+];
+
+const COMFORT_PRESET_OPTIONS = [
+  'Warm tea / chai',
+  'Heating pad',
+  'Dark chocolate',
+  'Quiet evening',
+  'Back / foot rub',
+  'Handle dinner',
+];
 
 export function PartnerView({
   data,
@@ -75,15 +103,23 @@ export function PartnerView({
   onUpdateWatchConfig,
   watchedSnapshot,
   onUpdateWatchedSnapshot,
+  prefillPartnerCode,
+  pinAuthError = false,
+  onClearPinAuthError,
   onNotify,
 }: PartnerViewProps) {
+  const [activeRoleTab, setActiveRoleTab] = useState<'watch' | 'share'>(() =>
+    prefillPartnerCode ? 'watch' : shareConfig.enabled && !watchConfig ? 'share' : 'watch',
+  );
   const [pinInput, setPinInput] = useState('');
+  const [showSharePin, setShowSharePin] = useState(false);
   const [copied, setCopied] = useState(false);
   const [shareStatus, setShareStatus] = useState<string | null>(null);
   const [syncingShare, setSyncingShare] = useState(false);
 
-  const [connectCode, setConnectCode] = useState(watchConfig?.code ?? '');
+  const [connectCode, setConnectCode] = useState(prefillPartnerCode || watchConfig?.code || '');
   const [connectPin, setConnectPin] = useState('');
+  const [recoveryPin, setRecoveryPin] = useState('');
   const [connectUrl, setConnectUrl] = useState(
     watchConfig?.syncServerUrl || shareConfig.syncServerUrl || DEFAULT_PARTNER_SYNC_URL,
   );
@@ -91,6 +127,14 @@ export function PartnerView({
   const [loadingWatch, setLoadingWatch] = useState(false);
   const [carePingInput, setCarePingInput] = useState('');
   const [sendingCarePing, setSendingCarePing] = useState(false);
+  const [selectedForecastDay, setSelectedForecastDay] = useState<{ date: string; phase: PartnerSnapshot['phase'] } | null>(null);
+
+  useEffect(() => {
+    if (prefillPartnerCode) {
+      setConnectCode(prefillPartnerCode);
+      setActiveRoleTab('watch');
+    }
+  }, [prefillPartnerCode]);
 
   const CARE_PING_PRESETS = [
     'Picking up a heating pad or warm tea — need anything?',
@@ -102,13 +146,28 @@ export function PartnerView({
   const handleSendCarePing = async (msg: string) => {
     if (!watchConfig) return;
     setSendingCarePing(true);
-    const res = await pushPartnerCarePing(watchConfig, msg, 'Your Partner');
+    const sender = watchConfig.partnerName?.trim() || 'Your Partner';
+    const res = await pushPartnerCarePing(watchConfig, msg, sender);
     setSendingCarePing(false);
     if (res.ok) {
       setCarePingInput('');
       onNotify('Encrypted care ping sent!');
     } else {
       onNotify(res.error || 'Could not send care ping.');
+    }
+  };
+
+  const handleCopyInvite = async () => {
+    const inviteUrl = `https://jee1vk.github.io/lunacycle-app/?partner=${shareConfig.code}`;
+    const pinLine = shareConfig.pin ? `\nPIN: ${shareConfig.pin}` : '';
+    const text = `Join my private LunaCycle Partner View:\n${inviteUrl}\nPartner Code: ${shareConfig.code}${pinLine}`;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setShareStatus('Invite link, code & PIN copied — paste in WhatsApp or SMS!');
+      window.setTimeout(() => setCopied(false), 2200);
+    } catch {
+      setShareStatus(`Code: ${shareConfig.code}${shareConfig.pin ? ` · PIN: ${shareConfig.pin}` : ''}`);
     }
   };
 
@@ -206,14 +265,16 @@ export function PartnerView({
     }
     setLoadingWatch(true);
     setWatchStatus(null);
-    const cleanPin = connectPin.trim() || watchConfig?.pin;
+    const cleanPin = connectPin.trim() || undefined;
     const pinHash = cleanPin ? await hashPartnerPin(cleanPin) : undefined;
     const nextWatch: PartnerWatchConfig = {
       code: cleanCode,
       pin: cleanPin,
       pinHash,
       syncServerUrl: connectUrl.trim(),
+      partnerName: watchConfig?.partnerName ?? '',
       alertsOnThisPhone: watchConfig?.alertsOnThisPhone ?? true,
+      dailyCheckinTime: watchConfig?.dailyCheckinTime ?? '18:30',
       lastFetchedAt: new Date().toISOString(),
     };
     const res = await fetchPartnerSnapshot(nextWatch);
@@ -221,12 +282,37 @@ export function PartnerView({
     if (res.snapshot) {
       onUpdateWatchConfig(nextWatch);
       onUpdateWatchedSnapshot(res.snapshot);
+      onClearPinAuthError?.();
       setWatchStatus(`Connected live to ${res.snapshot.profileLabel}.`);
       onNotify(`Connected to ${res.snapshot.profileLabel}`);
     } else {
       setWatchStatus(
         res.pinRequired ? 'PIN required or incorrect.' : (res.error ?? 'Could not connect.'),
       );
+    }
+  };
+
+  const handleInlinePinRecovery = async () => {
+    if (!watchConfig) return;
+    const cleanPin = recoveryPin.trim() || undefined;
+    const pinHash = cleanPin ? await hashPartnerPin(cleanPin) : undefined;
+    const updatedWatch: PartnerWatchConfig = {
+      ...watchConfig,
+      pin: cleanPin,
+      pinHash,
+      lastFetchedAt: new Date().toISOString(),
+    };
+    setLoadingWatch(true);
+    const res = await fetchPartnerSnapshot(updatedWatch);
+    setLoadingWatch(false);
+    if (res.snapshot) {
+      onUpdateWatchConfig(updatedWatch);
+      onUpdateWatchedSnapshot(res.snapshot);
+      onClearPinAuthError?.();
+      setRecoveryPin('');
+      setWatchStatus('PIN updated & synced live!');
+    } else {
+      setWatchStatus(res.pinRequired ? 'That PIN was incorrect — try again.' : (res.error ?? 'Could not sync.'));
     }
   };
 
@@ -238,16 +324,48 @@ export function PartnerView({
     if (res.snapshot) {
       onUpdateWatchedSnapshot(res.snapshot);
       onUpdateWatchConfig({ ...watchConfig, lastFetchedAt: new Date().toISOString() });
+      onClearPinAuthError?.();
       setWatchStatus('Updated just now.');
     } else {
-      setWatchStatus(res.error ?? 'Could not refresh.');
+      setWatchStatus(
+        res.pinRequired ? 'Partner updated their PIN — enter the new PIN below.' : (res.error ?? 'Could not refresh.'),
+      );
     }
   };
 
   const supportTips = watchedSnapshot ? getPartnerSupportTips(watchedSnapshot) : [];
+  const bodyForecast = watchedSnapshot ? getPartnerDailyBodyForecast(watchedSnapshot) : null;
+  const keyUpcomingDates = watchedSnapshot ? getPartnerKeyUpcomingDates(watchedSnapshot) : [];
+  const staleDays = watchedSnapshot ? Math.max(0, daysBetween(watchedSnapshot.asOfDate, summary.today)) : 0;
 
   return (
     <>
+      {/* ROLE-AWARE TAB SWITCHER */}
+      <div className="segmented" style={{ gridTemplateColumns: '1fr 1fr' }} role="tablist" aria-label="Partner mode">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeRoleTab === 'watch'}
+          aria-pressed={activeRoleTab === 'watch'}
+          className="segmented-btn"
+          onClick={() => setActiveRoleTab('watch')}
+        >
+          Partner View
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeRoleTab === 'share'}
+          aria-pressed={activeRoleTab === 'share'}
+          className="segmented-btn"
+          onClick={() => setActiveRoleTab('share')}
+        >
+          Share My Cycle
+        </button>
+      </div>
+
+      {activeRoleTab === 'watch' ? (
+      <>
       {/* SECTION 1: CONNECT TO PARTNER (VIEW PARTNER'S LIVE UPDATES) */}
       <section className="card" aria-label="Connect to your partner">
         <div
@@ -382,6 +500,82 @@ export function PartnerView({
             </div>
 
             {/* Partner Current Phase / Pregnancy Summary Box */}
+            {/* Inline PIN Recovery Banner if primary user changed PIN */}
+            {pinAuthError ? (
+              <div className="reminder-item reminder-item--period" style={{ flexDirection: 'column', gap: 8 }}>
+                <div>
+                  <p className="reminder-title">Partner PIN updated</p>
+                  <p className="reminder-body">Enter the new 4-digit PIN (or leave blank if removed) to resume live sync.</p>
+                </div>
+                <div style={{ display: 'flex', gap: 6, width: '100%' }}>
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={4}
+                    className="input-control tabular"
+                    placeholder="New 4-digit PIN"
+                    value={recoveryPin}
+                    onChange={(e) => setRecoveryPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                  />
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    style={{ minHeight: 44, padding: '8px 14px', flexShrink: 0 }}
+                    disabled={loadingWatch}
+                    onClick={() => void handleInlinePinRecovery()}
+                  >
+                    Reconnect
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            {/* Stale-Sync Indicator */}
+            {staleDays > 0 ? (
+              <div className="reminder-item reminder-item--gentle" style={{ padding: '8px 12px' }}>
+                <p className="reminder-body" style={{ margin: 0 }}>
+                  <strong>Last synced {staleDays} {staleDays === 1 ? 'day' : 'days'} ago</strong> ({formatShortDate(watchedSnapshot.asOfDate)}). Symptoms shown are from that day until {watchedSnapshot.profileLabel} opens LunaCycle again.
+                </p>
+              </div>
+            ) : null}
+
+            {/* Today's Need Beacon (from primary user) */}
+            {watchedSnapshot.todayNeedStatus ? (
+              <div
+                className="card-subtle"
+                style={{
+                  borderColor: 'var(--color-brand-accent)',
+                  background: 'var(--color-brand-accent-soft)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                }}
+              >
+                <Heart size={18} color="var(--color-brand-primary)" style={{ flexShrink: 0 }} />
+                <div>
+                  <div className="metric-label" style={{ color: 'var(--color-brand-primary)' }}>
+                    What {watchedSnapshot.profileLabel} Needs Today
+                  </div>
+                  <div style={{ fontWeight: 700, fontSize: '0.96rem', color: 'var(--color-text-primary)', marginTop: 2 }}>
+                    {watchedSnapshot.todayNeedStatus}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            {/* Opt-In Pill Refill Alert */}
+            {watchedSnapshot.pillRefillNeeded ? (
+              <div className="reminder-item reminder-item--period" style={{ alignItems: 'center' }}>
+                <Pill size={16} style={{ flexShrink: 0 }} />
+                <div>
+                  <p className="reminder-title">Pill Pack Refill Due Soon</p>
+                  <p className="reminder-body">
+                    Only {watchedSnapshot.pillDaysRemaining ?? 0} days left in {watchedSnapshot.profileLabel}&apos;s current pack — offer to pick up a refill!
+                  </p>
+                </div>
+              </div>
+            ) : null}
+
             <div className="card-subtle" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
                 <span className={`phase-badge phase-badge--${watchedSnapshot.phase}`}>
@@ -462,26 +656,81 @@ export function PartnerView({
 
               {/* Shared Symptoms & Moods */}
               {(watchedSnapshot.todaySymptoms && watchedSnapshot.todaySymptoms.length > 0) ||
+              (watchedSnapshot.todayCustomSymptoms && watchedSnapshot.todayCustomSymptoms.length > 0) ||
               (watchedSnapshot.todayMoods && watchedSnapshot.todayMoods.length > 0) ? (
                 <div>
                   <div className="metric-label" style={{ marginBottom: 6 }}>
-                    How {watchedSnapshot.profileLabel} Feels Today
+                    How {watchedSnapshot.profileLabel} Feels {staleDays > 0 ? `(${formatShortDate(watchedSnapshot.asOfDate)})` : 'Today'}
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                    {watchedSnapshot.todaySymptoms?.map((s) => (
-                      <span key={s} className="phase-badge phase-badge--menstrual">
-                        {SYMPTOM_LABEL_MAP[s]}
+                    {watchedSnapshot.todaySymptoms?.map((s) =>
+                      SYMPTOM_LABEL_MAP[s] ? (
+                        <span key={s} className="phase-badge phase-badge--menstrual">
+                          {SYMPTOM_LABEL_MAP[s]}
+                        </span>
+                      ) : null,
+                    )}
+                    {watchedSnapshot.todayCustomSymptoms?.map((cs) => (
+                      <span key={cs} className="phase-badge phase-badge--menstrual">
+                        {cs}
                       </span>
                     ))}
-                    {watchedSnapshot.todayMoods?.map((m) => (
-                      <span key={m} className="phase-badge phase-badge--fertile">
-                        {MOOD_LABEL_MAP[m]}
-                      </span>
-                    ))}
+                    {watchedSnapshot.todayMoods?.map((m) =>
+                      MOOD_LABEL_MAP[m] ? (
+                        <span key={m} className="phase-badge phase-badge--fertile">
+                          {MOOD_LABEL_MAP[m]}
+                        </span>
+                      ) : null,
+                    )}
                   </div>
                 </div>
               ) : null}
             </div>
+
+            {/* Glanceable "Her Body & Energy Today" Meters */}
+            {bodyForecast ? (
+              <div className="card-subtle" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>
+                  Her Body &amp; Energy Today
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                  {[
+                    { label: 'Energy', val: bodyForecast.energy, color: 'var(--color-brand-secondary)' },
+                    { label: 'Sensitivity', val: bodyForecast.moodSensitivity, color: 'var(--color-brand-primary)' },
+                    { label: 'Social', val: bodyForecast.socialBattery, color: 'var(--color-brand-accent)' },
+                  ].map((m) => (
+                    <div key={m.label}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', fontWeight: 600, marginBottom: 4 }}>
+                        <span>{m.label}</span>
+                        <span className="tabular">{m.val}/5</span>
+                      </div>
+                      <div style={{ height: 6, borderRadius: 9999, background: 'var(--color-border-subtle)', overflow: 'hidden' }}>
+                        <div style={{ width: `${(m.val / 5) * 100}%`, height: '100%', background: m.color, borderRadius: 9999 }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <p className="section-caption" style={{ lineHeight: 1.45 }}>
+                  {bodyForecast.hormoneLine}
+                </p>
+              </div>
+            ) : null}
+
+            {/* Personal "What Helps Her Most" Comfort List */}
+            {watchedSnapshot.comfortPreferences && watchedSnapshot.comfortPreferences.length > 0 ? (
+              <div className="card-subtle">
+                <div className="metric-label" style={{ marginBottom: 6 }}>
+                  What Helps {watchedSnapshot.profileLabel} Most
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {watchedSnapshot.comfortPreferences.map((pref) => (
+                    <span key={pref} className="phase-badge phase-badge--ovulation" style={{ fontSize: '0.74rem' }}>
+                      {pref}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
 
             {/* Empathetic Partner Support Tips */}
             <div className="card-subtle" style={{ borderLeft: '3px solid var(--color-brand-accent)' }}>
@@ -495,16 +744,40 @@ export function PartnerView({
               </ul>
             </div>
 
-            {/* Upcoming 14-Day Forecast Strip (if shared) */}
+            {/* Key Upcoming Dates Timeline */}
+            {keyUpcomingDates.length > 0 ? (
+              <div className="card-subtle" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ fontWeight: 700, fontSize: '0.88rem', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <Calendar size={14} color="var(--color-brand-primary)" />
+                  Key Upcoming Dates
+                </div>
+                {keyUpcomingDates.map((kd) => (
+                  <div key={kd.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, fontSize: '0.82rem' }}>
+                    <div>
+                      <strong>{kd.label}</strong>
+                      <div className="section-caption" style={{ fontSize: '0.74rem' }}>{kd.cue}</div>
+                    </div>
+                    <span className="phase-badge phase-badge--follicular tabular" style={{ flexShrink: 0, fontSize: '0.72rem' }}>
+                      {formatShortDate(kd.date)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            {/* Interactive Tappable 14-Day Forecast Strip + Legend */}
             {watchedSnapshot.upcomingDays && watchedSnapshot.upcomingDays.length > 0 ? (
               <div>
-                <div className="metric-label" style={{ marginBottom: 8 }}>
-                  Next 14 Days Forecast
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
+                  <div className="metric-label">Next 14 Days Forecast</div>
+                  <span className="section-caption" style={{ fontSize: '0.72rem' }}>Tap any day</span>
                 </div>
                 <div className="week-strip" style={{ gap: 5 }}>
                   {watchedSnapshot.upcomingDays.map((item) => {
+                    const isSelected = selectedForecastDay?.date === item.date;
                     const cls = [
                       'week-day-btn',
+                      isSelected ? 'week-day-btn--today' : '',
                       item.phase === 'menstrual' ? 'week-day-btn--period' : '',
                       item.phase === 'predicted_period' ? 'week-day-btn--predicted' : '',
                       item.phase === 'ovulation'
@@ -516,19 +789,45 @@ export function PartnerView({
                       .filter(Boolean)
                       .join(' ');
                     return (
-                      <div
+                      <button
                         key={item.date}
+                        type="button"
                         className={cls}
-                        style={{ minHeight: 48, cursor: 'default' }}
-                        title={`${formatShortDate(item.date)}: ${PHASE_INFO[item.phase].shortLabel}`}
+                        style={{ minHeight: 48 }}
+                        onClick={() => setSelectedForecastDay(isSelected ? null : item)}
+                        aria-label={`${formatShortDate(item.date)}: ${PHASE_INFO[item.phase].shortLabel}`}
                       >
                         <span className="week-day-letter">{formatWeekdayShort(item.date)}</span>
                         <span className="week-day-num tabular" style={{ fontSize: '0.82rem' }}>
                           {getDayOfMonth(item.date)}
                         </span>
-                      </div>
+                      </button>
                     );
                   })}
+                </div>
+                {selectedForecastDay ? (
+                  <div className="card-subtle" style={{ marginTop: 8, padding: '8px 12px', fontSize: '0.82rem' }}>
+                    <strong>{formatShortDate(selectedForecastDay.date)} — {PHASE_INFO[selectedForecastDay.phase].title}:</strong>{' '}
+                    <span style={{ color: 'var(--color-text-secondary)' }}>
+                      {PHASE_INFO[selectedForecastDay.phase].gentleCare}
+                    </span>
+                  </div>
+                ) : null}
+                <div className="cal-legend" style={{ marginTop: 8, paddingTop: 8 }}>
+                  <span className="legend-item">
+                    <span className="legend-swatch" style={{ background: 'var(--color-brand-primary)' }} />
+                    Period
+                  </span>
+                  <span className="legend-item">
+                    <span className="legend-swatch" style={{ background: 'var(--color-brand-primary-soft)', border: '1px dashed var(--color-brand-primary-mid)' }} />
+                    Expected
+                  </span>
+                  {watchedSnapshot.ovulationDate ? (
+                    <span className="legend-item">
+                      <span className="legend-swatch" style={{ background: 'var(--color-brand-secondary-soft)' }} />
+                      Fertile / Peak
+                    </span>
+                  ) : null}
                 </div>
               </div>
             ) : null}
@@ -585,10 +884,10 @@ export function PartnerView({
                     />
                   </div>
 
-                  {buildScheduledPartnerCareAlerts(watchedSnapshot).length > 0 ? (
+                  {buildScheduledPartnerCareAlerts(watchedSnapshot, summary.today).length > 0 ? (
                     <div style={{ fontSize: '0.78rem', color: 'var(--color-text-secondary)' }}>
                       <strong>Upcoming care reminders:</strong>{' '}
-                      {buildScheduledPartnerCareAlerts(watchedSnapshot)
+                      {buildScheduledPartnerCareAlerts(watchedSnapshot, summary.today)
                         .map((a) => `${a.title}${a.scheduleDate ? ` (${formatShortDate(a.scheduleDate)})` : ''}`)
                         .join(' · ')}
                     </div>
@@ -632,6 +931,19 @@ export function PartnerView({
               <p className="section-caption">
                 End-to-end encrypted — appears gently on {watchedSnapshot.profileLabel}&apos;s Today screen.
               </p>
+              <label className="field-group">
+                <span className="field-label" style={{ fontSize: '0.76rem' }}>Your Name (shown on her screen)</span>
+                <input
+                  type="text"
+                  className="input-control"
+                  style={{ minHeight: 38, fontSize: '0.85rem' }}
+                  placeholder="e.g. Jeevan"
+                  value={watchConfig.partnerName ?? ''}
+                  onChange={(e) =>
+                    onUpdateWatchConfig({ ...watchConfig, partnerName: e.target.value })
+                  }
+                />
+              </label>
               <div className="chip-group">
                 {CARE_PING_PRESETS.map((preset) => (
                   <button
@@ -684,8 +996,9 @@ export function PartnerView({
         today={summary.today}
         simpleMode={data.settings.simpleMode}
       />
-
-      {/* SECTION 2: SHARE MY CYCLE PRIVATELY */}
+      </>
+      ) : (
+      /* SECTION 2: SHARE MY CYCLE PRIVATELY */
       <section className="card" aria-label="Share my cycle privately">
         <div
           style={{
@@ -804,6 +1117,22 @@ export function PartnerView({
               >
                 {shareConfig.code}
               </div>
+              {shareConfig.pin ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                  <span className="section-caption tabular">
+                    PIN: <strong>{showSharePin ? shareConfig.pin : '••••'}</strong>
+                  </span>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    style={{ minHeight: 28, padding: '2px 8px', fontSize: '0.72rem' }}
+                    onClick={() => setShowSharePin((v) => !v)}
+                  >
+                    {showSharePin ? <EyeOff size={12} /> : <Eye size={12} />}
+                    {showSharePin ? 'Hide' : 'Show'}
+                  </button>
+                </div>
+              ) : null}
               {shareConfig.lastSyncedAt ? (
                 <div className="section-caption">
                   Last synced{' '}
@@ -814,15 +1143,24 @@ export function PartnerView({
                 </div>
               ) : null}
             </div>
-            <div style={{ display: 'flex', gap: 6 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              <button
+                type="button"
+                className="btn-secondary"
+                style={{ minHeight: 42, padding: '8px 12px', fontSize: '0.82rem' }}
+                onClick={() => void handleCopyInvite()}
+              >
+                {copied ? <Check size={15} /> : <Link2 size={15} />}
+                {copied ? 'Copied' : 'Copy Invite'}
+              </button>
               <button
                 type="button"
                 className="btn-secondary"
                 style={{ minHeight: 42, padding: '8px 12px', fontSize: '0.82rem' }}
                 onClick={() => void handleCopyCode()}
               >
-                {copied ? <Check size={15} /> : <Copy size={15} />}
-                {copied ? 'Copied' : 'Copy'}
+                <Copy size={15} />
+                Code
               </button>
               <button
                 type="button"
@@ -832,6 +1170,59 @@ export function PartnerView({
               >
                 New Code
               </button>
+            </div>
+          </div>
+
+          {/* 1-Tap "What I Need Today" Beacon */}
+          <div className="card-subtle" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div className="metric-label">What I Need Today (1-Tap Beacon)</div>
+            <div className="chip-group">
+              {NEED_BEACON_OPTIONS.map((opt) => {
+                const active = shareConfig.todayNeedStatus === opt;
+                return (
+                  <button
+                    key={opt}
+                    type="button"
+                    className="chip"
+                    aria-pressed={active}
+                    style={{ fontSize: '0.8rem', minHeight: 38 }}
+                    onClick={() =>
+                      onUpdateShareConfig({
+                        ...shareConfig,
+                        todayNeedStatus: active ? '' : opt,
+                      })
+                    }
+                  >
+                    {opt}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Personal "What Helps Me" Comfort Preferences */}
+          <div className="card-subtle" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div className="metric-label">What Helps Me Most (Shown to Partner)</div>
+            <div className="chip-group">
+              {COMFORT_PRESET_OPTIONS.map((pref) => {
+                const list = shareConfig.comfortPreferences ?? [];
+                const active = list.includes(pref);
+                return (
+                  <button
+                    key={pref}
+                    type="button"
+                    className="chip chip--sage"
+                    aria-pressed={active}
+                    style={{ fontSize: '0.8rem', minHeight: 38 }}
+                    onClick={() => {
+                      const next = active ? list.filter((x) => x !== pref) : [...list, pref];
+                      onUpdateShareConfig({ ...shareConfig, comfortPreferences: next });
+                    }}
+                  >
+                    {pref}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -908,6 +1299,30 @@ export function PartnerView({
                 {...({ switch: '' } as Record<string, string>)}
               />
             </label>
+
+            <label className="setting-row" htmlFor="perm-pill-refill">
+              <div className="setting-label-wrap">
+                <span className="setting-title" style={{ fontSize: '0.88rem' }}>
+                  Share Pill Refill Heads-Up
+                </span>
+                <span className="setting-desc">Alerts partner only when your pack is low (never daily pill logs)</span>
+              </div>
+              <input
+                id="perm-pill-refill"
+                type="checkbox"
+                checked={Boolean(shareConfig.permissions.sharePillRefillStatus)}
+                onChange={(e) =>
+                  onUpdateShareConfig({
+                    ...shareConfig,
+                    permissions: {
+                      ...shareConfig.permissions,
+                      sharePillRefillStatus: e.target.checked,
+                    },
+                  })
+                }
+                {...({ switch: '' } as Record<string, string>)}
+              />
+            </label>
           </div>
 
           {/* Action Buttons */}
@@ -974,6 +1389,7 @@ export function PartnerView({
           ) : null}
         </div>
       </section>
+      )}
     </>
   );
 }
