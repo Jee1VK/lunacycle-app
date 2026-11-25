@@ -370,7 +370,8 @@ export function SettingsView({
         </div>
       </section>
 
-      {/* Contraception, Birth Control Mode & Pill Pack */}
+      {/* Contraception, Birth Control Mode & Pill Pack (hidden in Simple / Teen Mode) */}
+      {!settings.simpleMode ? (
       <section className="card">
         <h2 className="section-title">Contraception &amp; Pill Pack</h2>
         <p className="section-caption" style={{ marginBottom: 12 }}>
@@ -467,6 +468,7 @@ export function SettingsView({
           </div>
         ) : null}
       </section>
+      ) : null}
 
       {/* Privacy & Security Vault */}
       <section className="card">

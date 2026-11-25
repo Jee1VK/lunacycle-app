@@ -238,7 +238,7 @@ export function PartnerDiscoverSection({
             <span className="story-pill">You</span>
             <div className="story-title">Your daily check-in</div>
             <div className="story-foot tabular">
-              {checkedIds.length}/{checkinActions.length} done
+              {checkinActions.filter((a) => checkedIds.includes(a.id)).length}/{checkinActions.length} done
             </div>
           </button>
 

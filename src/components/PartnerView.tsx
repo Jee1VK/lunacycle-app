@@ -691,6 +691,10 @@ export function PartnerView({
                   style={{ minHeight: 44, padding: '0 12px', fontSize: '0.82rem' }}
                   onClick={async () => {
                     const cleanPin = pinInput.trim() || undefined;
+                    if (cleanPin && !/^\d{4}$/.test(cleanPin)) {
+                      setShareStatus('Enter exactly 4 digits for the Partner PIN (or leave blank to clear).');
+                      return;
+                    }
                     const hashed = cleanPin ? await hashPartnerPin(cleanPin) : undefined;
                     const updated = { ...shareConfig, pin: cleanPin, pinHash: hashed };
                     onUpdateShareConfig(updated);

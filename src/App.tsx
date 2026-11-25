@@ -360,14 +360,8 @@ export function App() {
       setWatchedPartnerSnapshot(res.snapshot);
       void saveCachedPartnerSnapshotToVault(res.snapshot);
 
-      // Schedule native Android OS partner care reminders & fire immediate symptom/phase care cue
+      // Fire immediate symptom/phase care cue when enabled
       if (partnerWatchConfig.alertsOnThisPhone) {
-        void syncNativePartnerNotifications(
-          res.snapshot,
-          partnerWatchConfig,
-          data.settings.disguiseMode,
-          data.settings.reminders.customNotificationText,
-        );
         const immediate = buildImmediatePartnerCareAlert(res.snapshot);
         if (immediate) {
           const key = `luna_partner_care_${today}_${immediate.id}`;
@@ -395,6 +389,26 @@ export function App() {
       window.clearInterval(intervalId);
     };
   }, [ready, locked, partnerWatchConfig?.code, partnerWatchConfig?.pinHash, partnerWatchConfig?.syncServerUrl, partnerWatchConfig?.alertsOnThisPhone, today, data.settings.disguiseMode]);
+
+  // Keep native Android OS Partner Care Notifications in sync (cancels immediately on disconnect or toggle OFF, reschedules immediately on time change)
+  useEffect(() => {
+    if (!ready || locked) return;
+    void syncNativePartnerNotifications(
+      watchedPartnerSnapshot,
+      partnerWatchConfig,
+      data.settings.disguiseMode,
+      data.settings.reminders.customNotificationText,
+    );
+  }, [
+    ready,
+    locked,
+    watchedPartnerSnapshot,
+    partnerWatchConfig?.alertsOnThisPhone,
+    partnerWatchConfig?.dailyCheckinTime,
+    partnerWatchConfig?.code,
+    data.settings.disguiseMode,
+    data.settings.reminders.customNotificationText,
+  ]);
 
   // Sync native Android OS notifications whenever logs/settings/summary change inside the APK
   useEffect(() => {
