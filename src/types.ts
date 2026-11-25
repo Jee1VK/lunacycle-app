@@ -55,14 +55,25 @@ export interface HygieneChangeEntry {
   estimatedMl: number;
 }
 
-export type PillRegimen = '21_7' | '28_active' | '24_4' | 'custom';
+export type PillRegimen = '21_only' | '21_7' | '28_active' | '24_4' | 'custom';
+export type PillStartMode = 'date' | 'period_day';
+export type PillAlarmTone =
+  | 'temple_chime'
+  | 'classic_bell'
+  | 'gentle_dawn'
+  | 'marimba_breeze'
+  | 'urgent_pulse';
 
 export interface PillPackSettings {
   enabled: boolean;
   regimen: PillRegimen;
-  packStartDate: string | null; // YYYY-MM-DD
-  reminderTime: string; // HH:mm
+  startMode?: PillStartMode; // Fixed date or auto-aligned to logged period day (e.g. Day 2)
+  startPeriodDay?: number; // 1..7 (e.g. 2 = 2nd day of logged period)
+  packStartDate: string | null; // YYYY-MM-DD (used in 'date' mode or fallback)
+  reminderTime: string; // Primary HH:mm (kept for backwards compatibility)
+  reminderTimes?: string[]; // 1..4 daily reminder/alarm times (HH:mm)
   alarmEnabled?: boolean;
+  alarmTone?: PillAlarmTone;
   totalPills?: number; // Total pills in pack/course (1..90)
   pillsPerDay?: number; // Number of pills to take each day (1..4)
   refillReminderEnabled?: boolean;
@@ -276,9 +287,13 @@ export const DEFAULT_SETTINGS: UserSettings = {
   pillPack: {
     enabled: false,
     regimen: '21_7',
+    startMode: 'date',
+    startPeriodDay: 2,
     packStartDate: null,
     reminderTime: '21:00',
+    reminderTimes: ['21:00'],
     alarmEnabled: true,
+    alarmTone: 'temple_chime',
     totalPills: 28,
     pillsPerDay: 1,
     refillReminderEnabled: true,

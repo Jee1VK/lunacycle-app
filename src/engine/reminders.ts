@@ -12,6 +12,7 @@ export interface ActiveReminder {
 export function computeActiveReminders(
   data: LunaData,
   summary: TodaySummary,
+  latestPeriodStartDate?: string | null,
 ): ActiveReminder[] {
   const alerts: ActiveReminder[] = [];
   const { reminders } = data.settings;
@@ -108,7 +109,11 @@ export function computeActiveReminders(
   }
 
   if (data.settings.pillPack.enabled && !data.settings.simpleMode) {
-    const pillStatus = computePillPackStatus(data.settings.pillPack, summary.today);
+    const pillStatus = computePillPackStatus(
+      data.settings.pillPack,
+      summary.today,
+      latestPeriodStartDate,
+    );
     if (pillStatus.needsRefill) {
       alerts.push({
         id: 'pill-refill',

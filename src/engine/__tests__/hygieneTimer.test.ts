@@ -3,6 +3,7 @@ import {
   computePillPackStatus,
   createHygieneTimer,
   getHygieneTimerRemaining,
+  getPillReminderTimes,
 } from '../hygieneTimer';
 import { ensureTemporal } from '../temporal';
 import { DEFAULT_SETTINGS } from '../../types';
@@ -78,5 +79,33 @@ describe('hygieneTimer & pillPack engine', () => {
     expect(beforeStart.startsInDays).toBe(4);
     expect(beforeStart.dayInPack).toBe(0);
     expect(beforeStart.needsRefill).toBe(false);
+  });
+
+  it('supports 21-pill-only packs, period-day-2 auto-start, and multiple daily reminder times', () => {
+    const periodLinkedPack = {
+      ...DEFAULT_SETTINGS.pillPack,
+      enabled: true,
+      regimen: '21_only' as const,
+      totalPills: 21,
+      startMode: 'period_day' as const,
+      startPeriodDay: 2,
+      reminderTimes: ['08:00', '14:00', '21:00'],
+      takenDates: [],
+    };
+
+    // Period started June 10 -> Period Day 2 is June 11
+    const onDay1OfPeriod = computePillPackStatus(periodLinkedPack, '2026-06-10', '2026-06-10');
+    expect(onDay1OfPeriod.periodLinked).toBe(true);
+    expect(onDay1OfPeriod.effectiveStartDate).toBe('2026-06-11');
+    expect(onDay1OfPeriod.startsInDays).toBe(1);
+    expect(onDay1OfPeriod.totalPills).toBe(21);
+
+    const onDay2OfPeriod = computePillPackStatus(periodLinkedPack, '2026-06-11', '2026-06-10');
+    expect(onDay2OfPeriod.dayInPack).toBe(1);
+    expect(onDay2OfPeriod.isBreakDay).toBe(false);
+    expect(onDay2OfPeriod.packDates).toHaveLength(21);
+    expect(onDay2OfPeriod.packDates.every((d) => !d.isBreak)).toBe(true);
+
+    expect(getPillReminderTimes(periodLinkedPack)).toEqual(['08:00', '14:00', '21:00']);
   });
 });

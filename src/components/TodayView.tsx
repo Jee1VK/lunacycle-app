@@ -22,6 +22,7 @@ import { classifyDate, formatTemp } from '../engine/cycleEngine';
 import {
   computePillPackStatus,
   getHygieneTimerRemaining,
+  getPillReminderTimes,
   SANITARY_PRODUCTS,
 } from '../engine/hygieneTimer';
 import { getUiStrings } from '../engine/i18n';
@@ -75,10 +76,13 @@ export function TodayView({
   }, [activeTimer]);
 
   const timerState = activeTimer ? getHygieneTimerRemaining(activeTimer, nowMs) : null;
+  const latestPeriodStart =
+    stats.periods.length > 0 ? stats.periods[stats.periods.length - 1].startDate : null;
   const pillStatus =
     data.settings.pillPack.enabled && !data.settings.simpleMode
-      ? computePillPackStatus(data.settings.pillPack, summary.today)
+      ? computePillPackStatus(data.settings.pillPack, summary.today, latestPeriodStart)
       : null;
+  const pillReminderTimes = getPillReminderTimes(data.settings.pillPack);
   const t = getUiStrings(data.settings.language);
   const phaseInfo = PHASE_INFO[summary.phase];
   const todayLog = data.logs[summary.today];
@@ -419,7 +423,7 @@ export function TodayView({
                 </h3>
                 <p className="section-caption">
                   {pillStatus.startsInDays > 0
-                    ? `Scheduled start: ${formatShortDate(data.settings.pillPack.packStartDate ?? summary.today)}`
+                    ? `Starts ${formatShortDate(pillStatus.effectiveStartDate)}${pillStatus.periodLinked ? ` (Period Day ${data.settings.pillPack.startPeriodDay ?? 2})` : ''}`
                     : `${pillStatus.isBreakDay ? 'Placebo / break' : `${pillStatus.pillsPerDay} ${pillStatus.pillsPerDay === 1 ? 'pill' : 'pills'}/day`} · ${pillStatus.streak}-day streak`}
                 </p>
               </div>
@@ -441,7 +445,7 @@ export function TodayView({
             <span className="phase-badge phase-badge--follicular tabular" style={{ fontSize: '0.72rem' }}>
               <Bell size={12} />
               {(data.settings.pillPack.alarmEnabled ?? true)
-                ? `Alarm ${data.settings.pillPack.reminderTime}`
+                ? `${pillReminderTimes.length === 1 ? 'Alarm' : `${pillReminderTimes.length} Alarms`} ${pillReminderTimes.join(' · ')}`
                 : 'Alarm off'}
             </span>
             <span
@@ -450,6 +454,11 @@ export function TodayView({
             >
               {pillStatus.pillsRemaining} {pillStatus.pillsRemaining === 1 ? 'pill' : 'pills'} left
             </span>
+            {pillStatus.periodLinked ? (
+              <span className="phase-badge phase-badge--ovulation" style={{ fontSize: '0.72rem' }}>
+                Period Day {data.settings.pillPack.startPeriodDay ?? 2} start
+              </span>
+            ) : null}
           </div>
 
           {pillStatus.needsRefill ? (

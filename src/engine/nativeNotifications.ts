@@ -13,7 +13,7 @@ import type {
   PartnerWatchConfig,
   TodaySummary,
 } from '../types';
-import { computePillPackStatus } from './hygieneTimer';
+import { computePillPackStatus, getPillReminderTimes } from './hygieneTimer';
 import { buildScheduledPartnerCareAlerts } from './partnerNotifications';
 import { addDays } from './temporal';
 
@@ -23,6 +23,8 @@ const ID_PILL = 1003;
 const ID_HYGIENE = 1004;
 const ID_PILL_REFILL = 1005;
 const ID_PILL_TEST = 1006;
+const ID_PILL_SNOOZE = 1007;
+const ID_PILL_SLOT_BASE = 3000; // 3000..3099 reserved for 7-day exact multi-reminder pill alarms
 const ID_PARTNER_PMS = 2001;
 const ID_PARTNER_TOMORROW = 2002;
 const ID_PARTNER_FERTILE = 2003;
@@ -80,18 +82,21 @@ function getSafeText(
 export async function syncNativeScheduledNotifications(
   data: LunaData,
   summary: TodaySummary,
+  latestPeriodStartDate?: string | null,
 ): Promise<void> {
   if (!isNativeNotificationRuntime()) return;
   try {
     const status = await LocalNotifications.checkPermissions();
     if (status.display !== 'granted') return;
 
+    const pillSlotCancels = Array.from({ length: 32 }, (_, i) => ({ id: ID_PILL_SLOT_BASE + i }));
     await LocalNotifications.cancel({
       notifications: [
         { id: ID_PERIOD },
         { id: ID_DAILY_LOG },
         { id: ID_PILL },
         { id: ID_PILL_REFILL },
+        ...pillSlotCancels,
       ],
     });
 
@@ -100,6 +105,7 @@ export async function syncNativeScheduledNotifications(
       title: string;
       body: string;
       channelId?: string;
+      extra?: Record<string, string>;
       schedule: {
         at?: Date;
         on?: { hour: number; minute: number };
@@ -144,34 +150,51 @@ export async function syncNativeScheduledNotifications(
       }
     }
 
-    // 3. Daily Pill Alarm & Refill Reminder
+    // 3. Daily Pill Alarms (MedClock-style 7-day exact AlarmManager slots for 1..4 daily times) & Refill Reminder
     if (pillPack.enabled && !data.settings.simpleMode) {
       await ensurePillAlarmChannel();
-      const pillStatus = computePillPackStatus(pillPack, summary.today);
+      const pillStatus = computePillPackStatus(pillPack, summary.today, latestPeriodStartDate);
+      const reminderTimes = getPillReminderTimes(pillPack);
 
       if (pillPack.alarmEnabled ?? true) {
-        const [hour, minute] = pillPack.reminderTime.split(':').map(Number);
-        if (Number.isFinite(hour) && Number.isFinite(minute)) {
-          const doseLabel =
-            pillStatus.pillsPerDay === 1 ? '1 pill' : `${pillStatus.pillsPerDay} pills`;
-          const msg = getSafeText(
-            disguiseMode,
-            reminders.customNotificationText,
-            'Daily Pill Alarm',
-            `Time to take your daily dose (${doseLabel}).`,
-          );
-          toSchedule.push({
-            id: ID_PILL,
-            ...msg,
-            channelId: PILL_ALARM_CHANNEL_ID,
-            schedule: { on: { hour, minute }, repeats: true, allowWhileIdle: true },
-          });
+        const doseLabel =
+          pillStatus.pillsPerDay === 1 ? '1 pill' : `${pillStatus.pillsPerDay} pills`;
+        const now = new Date();
+        let slotIdx = 0;
+
+        for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
+          const targetIso = addDays(summary.today, dayOffset);
+          if (targetIso < pillStatus.effectiveStartDate) continue;
+          const [ty, tm, td] = targetIso.split('-').map(Number);
+
+          for (const timeStr of reminderTimes) {
+            if (slotIdx >= 32) break;
+            const [hour, minute] = timeStr.split(':').map(Number);
+            if (!Number.isFinite(hour) || !Number.isFinite(minute)) continue;
+            const fireAt = new Date(ty, tm - 1, td, hour, minute, 0, 0);
+            if (fireAt.getTime() <= now.getTime() + 2000) continue;
+
+            const msg = getSafeText(
+              disguiseMode,
+              reminders.customNotificationText,
+              'Daily Pill Alarm',
+              `Time to take your daily dose (${doseLabel}) — ${timeStr}.`,
+            );
+            toSchedule.push({
+              id: ID_PILL_SLOT_BASE + slotIdx,
+              ...msg,
+              channelId: PILL_ALARM_CHANNEL_ID,
+              extra: { type: 'pill_alarm', scheduledTime: timeStr },
+              schedule: { at: fireAt, allowWhileIdle: true },
+            });
+            slotIdx += 1;
+          }
         }
       }
 
       if ((pillPack.refillReminderEnabled ?? true) && pillStatus.refillAlertDate) {
         const [ry, rm, rd] = pillStatus.refillAlertDate.split('-').map(Number);
-        const [rh, rmin] = pillPack.reminderTime.split(':').map(Number);
+        const [rh, rmin] = (reminderTimes[0] ?? '09:00').split(':').map(Number);
         const refillAt = new Date(
           ry,
           rm - 1,
@@ -390,4 +413,65 @@ export async function sendTestPillAlarmNotification(
     }
   }
   return false;
+}
+
+export async function scheduleNativePillSnooze(
+  minutes: number,
+  scheduledTime: string,
+  pillsPerDay: number,
+  disguiseMode: boolean,
+  customText: string,
+): Promise<void> {
+  if (!isNativeNotificationRuntime()) return;
+  try {
+    const status = await LocalNotifications.checkPermissions();
+    if (status.display !== 'granted') return;
+    await ensurePillAlarmChannel();
+    const doseLabel = pillsPerDay === 1 ? '1 pill' : `${pillsPerDay} pills`;
+    const msg = getSafeText(
+      disguiseMode,
+      customText,
+      'Snoozed Pill Alarm',
+      `Time to take your daily dose (${doseLabel}).`,
+    );
+    await LocalNotifications.schedule({
+      notifications: [
+        {
+          id: ID_PILL_SNOOZE,
+          ...msg,
+          channelId: PILL_ALARM_CHANNEL_ID,
+          extra: { type: 'pill_alarm', scheduledTime },
+          schedule: { at: new Date(Date.now() + minutes * 60_000), allowWhileIdle: true },
+        },
+      ],
+    });
+  } catch {
+    // Ignore
+  }
+}
+
+export function subscribeNativePillAlarmTap(
+  onTap: (scheduledTime: string) => void,
+): () => void {
+  if (!isNativeNotificationRuntime()) return () => {};
+  let removed = false;
+  let handle: { remove: () => Promise<void> } | null = null;
+
+  void LocalNotifications.addListener('localNotificationActionPerformed', (event) => {
+    const extra = event.notification?.extra as { type?: string; scheduledTime?: string } | undefined;
+    if (extra?.type === 'pill_alarm') {
+      onTap(extra.scheduledTime || '');
+    }
+  }).then((h) => {
+    if (removed) {
+      void h.remove();
+    } else {
+      handle = h;
+    }
+  });
+
+  return () => {
+    removed = true;
+    if (handle) void handle.remove();
+  };
 }

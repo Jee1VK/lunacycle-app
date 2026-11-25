@@ -78,16 +78,31 @@ export function computeTotalEstimatedMl(logs: Record<string, DailyLog>, dates: s
 }
 
 /**
+ * Returns the 1..4 normalized daily pill reminder/alarm times (HH:mm).
+ */
+export function getPillReminderTimes(pillPack: PillPackSettings): string[] {
+  const raw =
+    pillPack.reminderTimes && pillPack.reminderTimes.length > 0
+      ? pillPack.reminderTimes
+      : [pillPack.reminderTime || '21:00'];
+  return raw.slice(0, 4).map((t) => (/^\d{2}:\d{2}$/.test(t) ? t : '21:00'));
+}
+
+/**
  * Computes current pill pack day (1..totalPills), active vs placebo/break status,
- * remaining supply for refill reminders, future start dates, and consecutive daily intake streak.
+ * period-day auto-start alignment (e.g. Day 2 of logged period), remaining supply
+ * for refill reminders, future start dates, and consecutive daily intake streak.
  */
 export function computePillPackStatus(
   pillPack: PillPackSettings,
   today: string,
+  latestPeriodStartDate?: string | null,
 ): {
   dayInPack: number;
   totalPills: number;
   pillsPerDay: number;
+  effectiveStartDate: string;
+  periodLinked: boolean;
   startsInDays: number;
   isBreakDay: boolean;
   takenToday: boolean;
@@ -98,15 +113,27 @@ export function computePillPackStatus(
   refillAlertDate: string | null;
   packDates: Array<{ date: string; dayNumber: number; isBreak: boolean; taken: boolean; isToday: boolean }>;
 } {
-  const totalPills = Math.max(1, Math.min(90, Math.round(pillPack.totalPills ?? 28)));
+  const defaultPackSize = pillPack.regimen === '21_only' ? 21 : 28;
+  const totalPills = Math.max(
+    1,
+    Math.min(90, Math.round(pillPack.totalPills ?? defaultPackSize)),
+  );
   const pillsPerDay = Math.max(1, Math.min(4, Math.round(pillPack.pillsPerDay ?? 1)));
-  const start = pillPack.packStartDate ?? today;
-  const rawDiff = daysBetween(start, today);
+
+  const startPeriodDay = Math.max(1, Math.min(7, Math.round(pillPack.startPeriodDay ?? 2)));
+  const periodLinked = pillPack.startMode === 'period_day' && Boolean(latestPeriodStartDate);
+  const effectiveStartDate =
+    periodLinked && latestPeriodStartDate
+      ? addDays(latestPeriodStartDate, startPeriodDay - 1)
+      : pillPack.packStartDate ?? today;
+
+  const rawDiff = daysBetween(effectiveStartDate, today);
   const startsInDays = rawDiff < 0 ? Math.abs(rawDiff) : 0;
 
   const effectiveDiff = Math.max(0, rawDiff);
   const cycleIndex = Math.floor(effectiveDiff / totalPills);
-  const currentPackStart = rawDiff < 0 ? start : addDays(start, cycleIndex * totalPills);
+  const currentPackStart =
+    rawDiff < 0 ? effectiveStartDate : addDays(effectiveStartDate, cycleIndex * totalPills);
   const dayInPack = rawDiff < 0 ? 0 : (effectiveDiff % totalPills) + 1;
 
   const activeDays =
@@ -114,7 +141,7 @@ export function computePillPackStatus(
       ? Math.min(21, totalPills)
       : pillPack.regimen === '24_4'
         ? Math.min(24, totalPills)
-        : totalPills;
+        : totalPills; // 21_only, 28_active, custom are all active pills
 
   const takenSet = new Set(pillPack.takenDates);
   const isBreakDay = dayInPack > 0 && dayInPack > activeDays;
@@ -151,7 +178,9 @@ export function computePillPackStatus(
   const refillEnabled = pillPack.refillReminderEnabled ?? true;
   const threshold = Math.max(1, Math.min(14, Math.round(pillPack.refillThresholdDays ?? 5)));
   const needsRefill =
-    refillEnabled && startsInDays === 0 && (daysRemainingInPack <= threshold || pillsRemaining <= threshold * pillsPerDay);
+    refillEnabled &&
+    startsInDays === 0 &&
+    (daysRemainingInPack <= threshold || pillsRemaining <= threshold * pillsPerDay);
 
   const refillDayOffset = Math.max(0, totalPills - threshold);
   const refillAlertDate = refillEnabled ? addDays(currentPackStart, refillDayOffset) : null;
@@ -160,6 +189,8 @@ export function computePillPackStatus(
     dayInPack,
     totalPills,
     pillsPerDay,
+    effectiveStartDate,
+    periodLinked,
     startsInDays,
     isBreakDay,
     takenToday,

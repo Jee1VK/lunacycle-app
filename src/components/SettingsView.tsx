@@ -16,24 +16,34 @@ import {
   Upload,
 } from 'lucide-react';
 import { LANGUAGE_OPTIONS } from '../engine/i18n';
+import { getPillReminderTimes } from '../engine/hygieneTimer';
 import {
   isNativeNotificationRuntime,
   requestNativeNotificationPermission,
   sendTestPillAlarmNotification,
 } from '../engine/nativeNotifications';
 import type { OtaUpdateState } from '../engine/otaUpdater';
-import { addDays } from '../engine/temporal';
+import { PILL_ALARM_TONE_OPTIONS, pillAlarmAudio } from '../engine/pillAlarmAudio';
+import { addDays, formatShortDate } from '../engine/temporal';
 import {
   getNotificationSupport,
   requestNotificationPermission,
 } from '../engine/reminders';
-import type { LunaData, PinLockConfig, TrackingMode, UserSettings } from '../types';
+import type {
+  LunaData,
+  PillAlarmTone,
+  PillRegimen,
+  PinLockConfig,
+  TrackingMode,
+  UserSettings,
+} from '../types';
 import { ModalDialog } from './ModalDialog';
 
 interface SettingsViewProps {
   data: LunaData;
   pinConfig: PinLockConfig | null;
   today: string;
+  latestPeriodStartDate?: string | null;
   otaState: OtaUpdateState;
   biometricAvailable: boolean;
   biometricLabel: string;
@@ -50,7 +60,7 @@ interface SettingsViewProps {
   onExportDoctorPdf: () => void;
   onLoadSampleData: () => void;
   onEraseAllData: () => Promise<void>;
-  onTestPillAlarmChime?: () => void;
+  onTriggerTestPillAlarm?: () => void;
   onNotify: (msg: string) => void;
 }
 
@@ -58,6 +68,7 @@ export function SettingsView({
   data,
   pinConfig,
   today,
+  latestPeriodStartDate,
   otaState,
   biometricAvailable,
   biometricLabel,
@@ -74,7 +85,7 @@ export function SettingsView({
   onExportDoctorPdf,
   onLoadSampleData,
   onEraseAllData,
-  onTestPillAlarmChime,
+  onTriggerTestPillAlarm,
   onNotify,
 }: SettingsViewProps) {
   const { settings } = data;
@@ -477,33 +488,92 @@ export function SettingsView({
           />
         </label>
 
-        {settings.pillPack.enabled ? (
+        {settings.pillPack.enabled ? (() => {
+          const pillTimes = getPillReminderTimes(settings.pillPack);
+          const startMode = settings.pillPack.startMode ?? 'date';
+          const startPeriodDay = settings.pillPack.startPeriodDay ?? 2;
+          const resolvedPeriodStart = latestPeriodStartDate
+            ? addDays(latestPeriodStartDate, startPeriodDay - 1)
+            : null;
+          const updatePillTimes = (nextTimes: string[]) => {
+            const safe = nextTimes.length > 0 ? nextTimes.slice(0, 4) : ['21:00'];
+            onUpdateSettings({
+              pillPack: {
+                ...settings.pillPack,
+                reminderTime: safe[0],
+                reminderTimes: safe,
+              },
+            });
+          };
+          const defaultSlots = ['08:00', '14:00', '21:00', '22:00'];
+
+          return (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(135px, 1fr))', gap: 10 }}>
-              <label className="field-group">
-                <span className="field-label">Regimen</span>
-                <select
-                  className="input-control"
-                  value={settings.pillPack.regimen}
-                  onChange={(e) => {
-                    const nextRegimen = e.target.value as '21_7' | '28_active' | '24_4' | 'custom';
-                    const defaultCount = nextRegimen === 'custom' ? (settings.pillPack.totalPills ?? 30) : 28;
+            <label className="field-group">
+              <span className="field-label">Pill Pack Regimen</span>
+              <select
+                className="input-control"
+                value={settings.pillPack.regimen}
+                onChange={(e) => {
+                  const nextRegimen = e.target.value as PillRegimen;
+                  const defaultCount =
+                    nextRegimen === '21_only'
+                      ? 21
+                      : nextRegimen === 'custom'
+                        ? (settings.pillPack.totalPills ?? 30)
+                        : 28;
+                  onUpdateSettings({
+                    pillPack: {
+                      ...settings.pillPack,
+                      regimen: nextRegimen,
+                      totalPills: defaultCount,
+                    },
+                  });
+                }}
+              >
+                <option value="21_only">21 Pills Only (21 active, no break)</option>
+                <option value="21_7">21 / 7 (21 active + 7 break)</option>
+                <option value="24_4">24 / 4 (24 active + 4 break)</option>
+                <option value="28_active">28 Active Pills</option>
+                <option value="custom">Custom Pill Count</option>
+              </select>
+            </label>
+
+            <div className="field-group">
+              <span className="field-label">When to Start Pack</span>
+              <div className="segmented" style={{ gridTemplateColumns: '1fr 1fr' }} role="group" aria-label="Pill pack start trigger">
+                <button
+                  type="button"
+                  className="segmented-btn"
+                  aria-pressed={startMode === 'date'}
+                  onClick={() =>
+                    onUpdateSettings({
+                      pillPack: { ...settings.pillPack, startMode: 'date' },
+                    })
+                  }
+                >
+                  Fixed Date
+                </button>
+                <button
+                  type="button"
+                  className="segmented-btn"
+                  aria-pressed={startMode === 'period_day'}
+                  onClick={() =>
                     onUpdateSettings({
                       pillPack: {
                         ...settings.pillPack,
-                        regimen: nextRegimen,
-                        totalPills: defaultCount,
+                        startMode: 'period_day',
+                        startPeriodDay: settings.pillPack.startPeriodDay ?? 2,
                       },
-                    });
-                  }}
+                    })
+                  }
                 >
-                  <option value="21_7">21 / 7 (21 active + 7 break)</option>
-                  <option value="24_4">24 / 4 (24 active + 4 break)</option>
-                  <option value="28_active">28 Active Pills</option>
-                  <option value="custom">Custom Pill Count</option>
-                </select>
-              </label>
+                  Logged Period Day
+                </button>
+              </div>
+            </div>
 
+            {startMode === 'date' ? (
               <label className="field-group">
                 <span className="field-label">Pack Start Date</span>
                 <input
@@ -517,7 +587,51 @@ export function SettingsView({
                   }
                 />
               </label>
-            </div>
+            ) : (
+              <div className="field-group">
+                <span className="field-label">Start on Period Day (e.g. Day 2 of logged period)</span>
+                <div className="stepper-row" style={{ maxWidth: 200 }}>
+                  <button
+                    type="button"
+                    className="stepper-btn"
+                    aria-label="Decrease start period day"
+                    onClick={() =>
+                      onUpdateSettings({
+                        pillPack: {
+                          ...settings.pillPack,
+                          startPeriodDay: Math.max(1, startPeriodDay - 1),
+                        },
+                      })
+                    }
+                  >
+                    −
+                  </button>
+                  <span className="tabular" style={{ fontWeight: 700 }}>
+                    Day {startPeriodDay}
+                  </span>
+                  <button
+                    type="button"
+                    className="stepper-btn"
+                    aria-label="Increase start period day"
+                    onClick={() =>
+                      onUpdateSettings({
+                        pillPack: {
+                          ...settings.pillPack,
+                          startPeriodDay: Math.min(7, startPeriodDay + 1),
+                        },
+                      })
+                    }
+                  >
+                    +
+                  </button>
+                </div>
+                <p className="field-hint">
+                  {resolvedPeriodStart
+                    ? `Auto-aligned to ${formatShortDate(resolvedPeriodStart)} (Day ${startPeriodDay} of your latest logged period).`
+                    : `Log a period to auto-start on Period Day ${startPeriodDay}. Currently using ${formatShortDate(settings.pillPack.packStartDate ?? today)}.`}
+                </p>
+              </div>
+            )}
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(135px, 1fr))', gap: 10 }}>
               <div className="field-group">
@@ -601,9 +715,9 @@ export function SettingsView({
 
             <label className="setting-row" htmlFor="pill-alarm-switch" style={{ paddingTop: 6 }}>
               <div className="setting-label-wrap">
-                <span className="setting-title">Daily Pill Alarm &amp; Notification</span>
+                <span className="setting-title">MedClock-Style Pill Alarm &amp; Notifications</span>
                 <span className="setting-desc">
-                  Rings &amp; notifies at your chosen time every day (works even when app is closed in APK)
+                  Full-screen looping alarm with snooze + Android OS alerts even when closed
                 </span>
               </div>
               <input
@@ -616,6 +730,7 @@ export function SettingsView({
                     pillPack: { ...settings.pillPack, alarmEnabled: enabled },
                   });
                   if (enabled) {
+                    void pillAlarmAudio.unlock();
                     if (isNativeNotificationRuntime()) {
                       await requestNativeNotificationPermission();
                     } else {
@@ -628,41 +743,98 @@ export function SettingsView({
             </label>
 
             {(settings.pillPack.alarmEnabled ?? true) ? (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end' }}>
-                <label className="field-group" style={{ flex: '1 1 140px' }}>
-                  <span className="field-label">Daily Alarm Time</span>
-                  <input
-                    type="time"
-                    className="input-control tabular"
-                    value={settings.pillPack.reminderTime}
-                    onChange={(e) =>
-                      onUpdateSettings({
-                        pillPack: { ...settings.pillPack, reminderTime: e.target.value || '21:00' },
-                      })
-                    }
-                  />
-                </label>
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  style={{ minHeight: 44 }}
-                  onClick={async () => {
-                    onTestPillAlarmChime?.();
-                    const ok = await sendTestPillAlarmNotification(
-                      settings.pillPack.pillsPerDay ?? 1,
-                      settings.disguiseMode,
-                      settings.reminders.customNotificationText,
-                    );
-                    onNotify(
-                      ok
-                        ? 'Test pill alarm triggered — check your notification tray.'
-                        : 'Played in-app chime. Allow notifications on your phone for OS alerts.',
-                    );
-                  }}
-                >
-                  <Bell size={15} />
-                  Test Alarm
-                </button>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div className="field-group">
+                  <span className="field-label">Number of Daily Reminders</span>
+                  <div className="stepper-row" style={{ maxWidth: 200 }}>
+                    <button
+                      type="button"
+                      className="stepper-btn"
+                      aria-label="Decrease number of daily pill reminders"
+                      onClick={() => {
+                        if (pillTimes.length > 1) {
+                          updatePillTimes(pillTimes.slice(0, -1));
+                        }
+                      }}
+                    >
+                      −
+                    </button>
+                    <span className="tabular" style={{ fontWeight: 700 }}>
+                      {pillTimes.length} {pillTimes.length === 1 ? 'reminder' : 'reminders'}
+                    </span>
+                    <button
+                      type="button"
+                      className="stepper-btn"
+                      aria-label="Increase number of daily pill reminders"
+                      onClick={() => {
+                        if (pillTimes.length < 4) {
+                          const nextSlot =
+                            defaultSlots.find((s) => !pillTimes.includes(s)) ?? '21:30';
+                          updatePillTimes([...pillTimes, nextSlot]);
+                        }
+                      }}
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(125px, 1fr))', gap: 8 }}>
+                  {pillTimes.map((tVal, idx) => (
+                    <label key={idx} className="field-group">
+                      <span className="field-label">Reminder {idx + 1}</span>
+                      <input
+                        type="time"
+                        className="input-control tabular"
+                        value={tVal}
+                        onChange={(e) => {
+                          const copy = [...pillTimes];
+                          copy[idx] = e.target.value || '21:00';
+                          updatePillTimes(copy);
+                        }}
+                      />
+                    </label>
+                  ))}
+                </div>
+
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end' }}>
+                  <label className="field-group" style={{ flex: '1 1 150px' }}>
+                    <span className="field-label">Alarm Tone</span>
+                    <select
+                      className="input-control"
+                      value={settings.pillPack.alarmTone ?? 'temple_chime'}
+                      onChange={(e) => {
+                        const tone = e.target.value as PillAlarmTone;
+                        onUpdateSettings({
+                          pillPack: { ...settings.pillPack, alarmTone: tone },
+                        });
+                        pillAlarmAudio.preview(tone);
+                      }}
+                    >
+                      {PILL_ALARM_TONE_OPTIONS.map((opt) => (
+                        <option key={opt.id} value={opt.id}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    style={{ minHeight: 44 }}
+                    onClick={async () => {
+                      onTriggerTestPillAlarm?.();
+                      await sendTestPillAlarmNotification(
+                        settings.pillPack.pillsPerDay ?? 1,
+                        settings.disguiseMode,
+                        settings.reminders.customNotificationText,
+                      );
+                    }}
+                  >
+                    <Bell size={15} />
+                    Test Full Alarm
+                  </button>
+                </div>
               </div>
             ) : null}
 
@@ -727,7 +899,8 @@ export function SettingsView({
               </div>
             ) : null}
           </div>
-        ) : null}
+          );
+        })() : null}
       </section>
       ) : null}
 
