@@ -265,7 +265,7 @@ export function App() {
       !locked &&
       Boolean(watchedPartnerSnapshot?.theme) &&
       (partnerWatchConfig?.syncPartnerTheme ?? true) &&
-      (Boolean(data.settings.partnerOnlyMode) || activeTab === 'partner');
+      activeTab === 'partner';
 
     const effectiveTheme = mirrorPartnerTheme
       ? watchedPartnerSnapshot!.theme!

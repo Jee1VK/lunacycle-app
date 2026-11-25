@@ -28,6 +28,7 @@ import {
   CUSTOM_THEME_PRESETS,
   DEFAULT_CUSTOM_THEME,
   getContrastRatio,
+  isDarkHex,
   sanitizeCustomTheme,
 } from '../engine/themeEngine';
 import { addDays, formatShortDate } from '../engine/temporal';
@@ -233,18 +234,27 @@ export function SettingsView({
               getContrastRatio(custom.primary, '#FFFFFF'),
               getContrastRatio(custom.primary, '#141211'),
             );
+            const primaryOnCanvas = getContrastRatio(custom.primary, custom.canvas);
+            const effectiveContrast = Math.min(btnTextContrast, primaryOnCanvas);
             const updateCustom = (patch: Partial<typeof custom>) => {
+              const merged = { ...custom, ...patch };
+              if (patch.canvas && !patch.baseMode) {
+                merged.baseMode = isDarkHex(patch.canvas) ? 'dark' : 'light';
+              }
               onUpdateSettings({
                 theme: 'custom',
-                customTheme: sanitizeCustomTheme({ ...custom, ...patch }),
+                customTheme: sanitizeCustomTheme(merged),
               });
             };
             return (
               <div className="card-subtle" style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
                   <strong style={{ fontSize: '0.86rem' }}>Custom Theme Studio</strong>
-                  <span className="phase-badge phase-badge--fertile tabular" style={{ fontSize: '0.7rem' }}>
-                    {btnTextContrast >= 4.5 ? `WCAG AA ${btnTextContrast}:1` : `Contrast ${btnTextContrast}:1`}
+                  <span
+                    className={`phase-badge tabular ${effectiveContrast >= 4.5 ? 'phase-badge--fertile' : 'phase-badge--menstrual'}`}
+                    style={{ fontSize: '0.7rem' }}
+                  >
+                    {effectiveContrast >= 4.5 ? `WCAG AA ${effectiveContrast}:1` : `Low Contrast ${effectiveContrast}:1`}
                   </span>
                 </div>
                 <p className="section-caption">
@@ -278,7 +288,7 @@ export function SettingsView({
                       aria-label="Custom primary color"
                       value={custom.primary}
                       onChange={(e) => updateCustom({ primary: e.target.value })}
-                      style={{ width: '100%', height: 42, borderRadius: 8, border: '1px solid var(--color-border-subtle)', padding: 2, background: 'var(--color-surface-card)', cursor: 'pointer' }}
+                      style={{ width: '100%', height: 44, borderRadius: 8, border: '1px solid var(--color-border-subtle)', padding: 2, background: 'var(--color-surface-card)', cursor: 'pointer' }}
                     />
                   </label>
                   <label className="field-group">
@@ -288,7 +298,7 @@ export function SettingsView({
                       aria-label="Custom accent color"
                       value={custom.accent}
                       onChange={(e) => updateCustom({ accent: e.target.value })}
-                      style={{ width: '100%', height: 42, borderRadius: 8, border: '1px solid var(--color-border-subtle)', padding: 2, background: 'var(--color-surface-card)', cursor: 'pointer' }}
+                      style={{ width: '100%', height: 44, borderRadius: 8, border: '1px solid var(--color-border-subtle)', padding: 2, background: 'var(--color-surface-card)', cursor: 'pointer' }}
                     />
                   </label>
                   <label className="field-group">
@@ -298,7 +308,7 @@ export function SettingsView({
                       aria-label="Custom background color"
                       value={custom.canvas}
                       onChange={(e) => updateCustom({ canvas: e.target.value })}
-                      style={{ width: '100%', height: 42, borderRadius: 8, border: '1px solid var(--color-border-subtle)', padding: 2, background: 'var(--color-surface-card)', cursor: 'pointer' }}
+                      style={{ width: '100%', height: 44, borderRadius: 8, border: '1px solid var(--color-border-subtle)', padding: 2, background: 'var(--color-surface-card)', cursor: 'pointer' }}
                     />
                   </label>
                 </div>
@@ -309,7 +319,7 @@ export function SettingsView({
                       key={preset.name}
                       type="button"
                       className="chip"
-                      style={{ minHeight: 34, padding: '4px 10px', fontSize: '0.76rem' }}
+                      style={{ minHeight: 44, padding: '6px 12px', fontSize: '0.78rem' }}
                       onClick={() => updateCustom(preset.colors)}
                     >
                       <span
@@ -328,7 +338,7 @@ export function SettingsView({
                   <button
                     type="button"
                     className="chip"
-                    style={{ minHeight: 34, padding: '4px 10px', fontSize: '0.76rem' }}
+                    style={{ minHeight: 44, padding: '6px 12px', fontSize: '0.78rem' }}
                     onClick={() => updateCustom(DEFAULT_CUSTOM_THEME)}
                   >
                     Reset

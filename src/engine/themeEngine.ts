@@ -114,9 +114,15 @@ export function getContrastRatio(hexA: string, hexB: string): number {
   return Number(((hi + 0.05) / (lo + 0.05)).toFixed(2));
 }
 
+export function isDarkHex(hex: string): boolean {
+  const safe = isValidHexColor(hex) ? hex : '#FAFAF7';
+  return getContrastRatio(safe, '#F5F2EC') > getContrastRatio(safe, '#1C1917');
+}
+
 export function buildCustomThemeCssVars(raw: Partial<CustomThemeColors> | undefined): Record<string, string> {
   const c = sanitizeCustomTheme(raw);
-  const isDark = c.baseMode === 'dark';
+  // Always derive true dark/light polarity from actual canvas luminance so text is never unreadable
+  const isDark = isDarkHex(c.canvas);
 
   const [cr, cg, cb] = hexToRgb(c.canvas);
   const cardBg = isDark ? mixHex(c.canvas, '#FFFFFF', 0.92) : mixHex(c.canvas, '#FFFFFF', 0.25);
@@ -176,14 +182,15 @@ export function applyThemeToDocument(
 
   if (theme === 'custom') {
     const safe = sanitizeCustomTheme(customTheme);
+    const darkCanvas = isDarkHex(safe.canvas);
     const vars = buildCustomThemeCssVars(safe);
-    root.style.colorScheme = safe.baseMode;
+    root.style.colorScheme = darkCanvas ? 'dark' : 'light';
     for (const [k, v] of Object.entries(vars)) {
       root.style.setProperty(k, v);
     }
     const themeMeta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
     if (themeMeta) {
-      themeMeta.content = safe.baseMode === 'dark' ? safe.canvas : safe.primary;
+      themeMeta.content = darkCanvas ? safe.canvas : safe.primary;
     }
     return;
   }

@@ -29,6 +29,15 @@ describe('themeEngine & Partner theme sync', () => {
     const darkBtnVars = buildCustomThemeCssVars({ baseMode: 'light', primary: '#1B4D3E', accent: '#C5A059', canvas: '#FAFAF7' });
     expect(darkBtnVars['--color-text-inverse']).toBe('#FFFFFF');
     expect(getContrastRatio('#1B4D3E', '#FFFFFF')).toBeGreaterThan(8);
+
+    // Mismatched baseMode vs canvas luminance -> auto-derives readable text polarity from actual canvas
+    const darkCanvasInLightMode = buildCustomThemeCssVars({
+      baseMode: 'light',
+      primary: '#E68DA1',
+      accent: '#E5C37A',
+      canvas: '#141211',
+    });
+    expect(darkCanvasInLightMode['--color-text-primary']).toBe('#F5F2EC');
   });
 
   it('includes primary user theme and customTheme in encrypted PartnerSnapshot', async () => {
