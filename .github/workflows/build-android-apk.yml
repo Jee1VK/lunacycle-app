@@ -56,16 +56,35 @@ jobs:
 
       - name: Configure Android App Icon Long-Press Shortcuts
         run: |
-          mkdir -p android/app/src/main/res/xml
-          cat << 'XML' > android/app/src/main/res/xml/shortcuts.xml
-          <?xml version="1.0" encoding="utf-8"?>
+          python3 - << 'EOF'
+          import os
+
+          values_dir = "android/app/src/main/res/values"
+          xml_dir = "android/app/src/main/res/xml"
+          os.makedirs(values_dir, exist_ok=True)
+          os.makedirs(xml_dir, exist_ok=True)
+
+          strings_xml = """<?xml version="1.0" encoding="utf-8"?>
+          <resources>
+            <string name="shortcut_period_short">Log Period</string>
+            <string name="shortcut_period_long">Log Period Today</string>
+            <string name="shortcut_pill_short">Take Pill</string>
+            <string name="shortcut_pill_long">Mark Pill Taken</string>
+            <string name="shortcut_symptoms_short">Symptoms</string>
+            <string name="shortcut_symptoms_long">Log Symptoms</string>
+          </resources>
+          """
+          with open(os.path.join(values_dir, "shortcut_strings.xml"), "w", encoding="utf-8") as f:
+              f.write("\n".join(line.lstrip() for line in strings_xml.strip().splitlines()) + "\n")
+
+          shortcuts_xml = """<?xml version="1.0" encoding="utf-8"?>
           <shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
             <shortcut
               android:shortcutId="log_period"
               android:enabled="true"
               android:icon="@mipmap/ic_launcher"
-              android:shortcutShortLabel="Log Period"
-              android:shortcutLongLabel="Log Period Today">
+              android:shortcutShortLabel="@string/shortcut_period_short"
+              android:shortcutLongLabel="@string/shortcut_period_long">
               <intent
                 android:action="android.intent.action.VIEW"
                 android:targetPackage="com.lunacycle.app"
@@ -76,8 +95,8 @@ jobs:
               android:shortcutId="take_pill"
               android:enabled="true"
               android:icon="@mipmap/ic_launcher"
-              android:shortcutShortLabel="Take Pill"
-              android:shortcutLongLabel="Mark Pill Taken">
+              android:shortcutShortLabel="@string/shortcut_pill_short"
+              android:shortcutLongLabel="@string/shortcut_pill_long">
               <intent
                 android:action="android.intent.action.VIEW"
                 android:targetPackage="com.lunacycle.app"
@@ -88,8 +107,8 @@ jobs:
               android:shortcutId="log_symptoms"
               android:enabled="true"
               android:icon="@mipmap/ic_launcher"
-              android:shortcutShortLabel="Symptoms"
-              android:shortcutLongLabel="Log Symptoms">
+              android:shortcutShortLabel="@string/shortcut_symptoms_short"
+              android:shortcutLongLabel="@string/shortcut_symptoms_long">
               <intent
                 android:action="android.intent.action.VIEW"
                 android:targetPackage="com.lunacycle.app"
@@ -97,11 +116,22 @@ jobs:
                 android:data="https://jee1vk.github.io/lunacycle-app/?action=log-symptoms" />
             </shortcut>
           </shortcuts>
-          XML
-          MANIFEST="android/app/src/main/AndroidManifest.xml"
-          if ! grep -q "android.app.shortcuts" "$MANIFEST"; then
-            sed -i 's|</activity>|    <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />\n        </activity>|' "$MANIFEST"
-          fi
+          """
+          with open(os.path.join(xml_dir, "shortcuts.xml"), "w", encoding="utf-8") as f:
+              f.write("\n".join(line.lstrip() for line in shortcuts_xml.strip().splitlines()) + "\n")
+
+          manifest_path = "android/app/src/main/AndroidManifest.xml"
+          with open(manifest_path, "r", encoding="utf-8") as f:
+              manifest = f.read()
+          if "android.app.shortcuts" not in manifest:
+              manifest = manifest.replace(
+                  "</activity>",
+                  '    <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />\n        </activity>',
+                  1,
+              )
+              with open(manifest_path, "w", encoding="utf-8") as f:
+                  f.write(manifest)
+          EOF
 
       - name: Embed Custom LunaCycle App Icon Across Android Mipmaps
         run: |
