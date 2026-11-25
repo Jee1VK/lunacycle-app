@@ -23,9 +23,8 @@ for (const file of files) {
   const result = JavaScriptObfuscator.obfuscate(source, {
     compact: true,
     controlFlowFlattening: true,
-    controlFlowFlatteningThreshold: 0.65,
-    deadCodeInjection: true,
-    deadCodeInjectionThreshold: 0.25,
+    controlFlowFlatteningThreshold: 0.25,
+    deadCodeInjection: false,
     identifierNamesGenerator: 'hexadecimal',
     renameGlobals: false,
     selfDefending: true,
@@ -35,8 +34,8 @@ for (const file of files) {
     stringArrayShuffle: true,
     stringArrayThreshold: 0.75,
     splitStrings: true,
-    splitStringsChunkLength: 8,
-    numbersToExpressions: true,
+    splitStringsChunkLength: 10,
+    numbersToExpressions: false,
     disableConsoleOutput: true,
     domainLock: ['jee1vk.github.io', 'localhost', '127.0.0.1'],
   });

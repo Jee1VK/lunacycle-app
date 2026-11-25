@@ -123,6 +123,7 @@ export function App() {
   }));
 
   const autoSyncTimerRef = useRef<number | null>(null);
+  const persistQueueRef = useRef<Promise<void>>(Promise.resolve());
   const today = todayPlainDate();
 
   const showToast = (msg: string) => {
@@ -190,6 +191,16 @@ export function App() {
 
         if (cfg?.enabled) {
           setPinConfig(cfg);
+          if (cfg.disguiseMode || cfg.theme) {
+            setData((prev) => ({
+              ...prev,
+              settings: {
+                ...prev.settings,
+                disguiseMode: Boolean(cfg.disguiseMode),
+                theme: cfg.theme ?? prev.settings.theme,
+              },
+            }));
+          }
           setLocked(true);
           setReady(true);
         } else {
@@ -252,13 +263,15 @@ export function App() {
     }
   }, [data.settings.disguiseMode]);
 
-  const persistData = async (next: LunaData, pinOverride?: string) => {
+  const persistData = (next: LunaData, pinOverride?: string) => {
     setData(next);
-    try {
-      await saveLunaData(next, pinOverride ?? activePin);
-    } catch {
-      showToast('Could not save to local vault.');
-    }
+    const pinToUse = pinOverride ?? activePin;
+    persistQueueRef.current = persistQueueRef.current
+      .then(() => saveLunaData(next, pinToUse))
+      .catch(() => {
+        showToast('Could not save to local vault.');
+      });
+    return persistQueueRef.current;
   };
 
   const handleUpdatePartnerShareConfig = (cfg: PartnerShareConfig) => {
@@ -303,12 +316,12 @@ export function App() {
       const snap = buildPartnerSnapshot(partnerShareConfig, data, stats, summary);
       void pushPartnerSnapshot(partnerShareConfig, snap).then((res) => {
         if (res.ok) {
-          const updated: PartnerShareConfig = {
-            ...partnerShareConfig,
-            lastSyncedAt: new Date().toISOString(),
-          };
-          setPartnerShareConfig(updated);
-          void savePartnerShareConfigToVault(updated);
+          const syncedAt = new Date().toISOString();
+          setPartnerShareConfig((prev) => {
+            const updated: PartnerShareConfig = { ...prev, lastSyncedAt: syncedAt };
+            void savePartnerShareConfigToVault(updated);
+            return updated;
+          });
         }
       });
     }, 1200);
@@ -474,6 +487,15 @@ export function App() {
         : data.settings.reminders,
     };
     void persistData({ ...data, settings: nextSettings });
+    if (pinConfig?.enabled && (patch.disguiseMode !== undefined || patch.theme !== undefined)) {
+      const updatedPinCfg: PinLockConfig = {
+        ...pinConfig,
+        disguiseMode: nextSettings.disguiseMode,
+        theme: nextSettings.theme,
+      };
+      setPinConfig(updatedPinCfg);
+      void savePinConfig(updatedPinCfg);
+    }
   };
 
   const handleStartHygieneTimer = (product: SanitaryProductType) => {
@@ -563,7 +585,10 @@ export function App() {
   };
 
   const handleSetPin = async (pin: string) => {
+    await clearBiometricCredentials();
     const cfg = await createPinConfig(pin, true);
+    cfg.disguiseMode = data.settings.disguiseMode;
+    cfg.theme = data.settings.theme;
     await savePinConfig(cfg);
     await saveLunaData(data, pin);
     setPinConfig(cfg);

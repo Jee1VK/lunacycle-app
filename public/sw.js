@@ -1,4 +1,4 @@
-const CACHE_NAME = 'lunacycle-offline-v4';
+const CACHE_NAME = 'lunacycle-offline-v5';
 const CORE_ASSETS = [
   './',
   './index.html',
@@ -75,7 +75,7 @@ self.addEventListener('fetch', (event) => {
           }
           return response;
         })
-        .catch(() => cached || caches.match('./index.html'));
+        .catch(() => cached || Response.error());
 
       return cached || fetchPromise;
     }),

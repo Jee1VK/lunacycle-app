@@ -195,6 +195,8 @@ export interface PinLockConfig {
   verifierBase64: string;
   autoLockOnHide: boolean;
   biometricEnabled?: boolean;
+  disguiseMode?: boolean;
+  theme?: ThemePreference;
 }
 
 export interface PartnerSharePermissions {
