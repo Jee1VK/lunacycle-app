@@ -26,6 +26,10 @@
   --color-feedback-success: #15803D;
   --color-feedback-warning: #B45309;
   --color-feedback-error: #B91C1C;
+  --color-ovulation-text: #7D5E1F;
+  --color-danger-bg: #FEF2F2;
+  --color-danger-bg-hover: #FEE2E2;
+  --color-danger-border: #FECACA;
 
   /* Typography */
   --font-display: "Cormorant Garamond", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
@@ -64,6 +68,11 @@
   --color-text-secondary: #C7C0B6;
   --color-text-muted: #9A9287;
   --color-text-inverse: #141211;
+  --color-ovulation-text: #F0D28C;
+  --color-feedback-error: #FCA5A5;
+  --color-danger-bg: #36181A;
+  --color-danger-bg-hover: #471F22;
+  --color-danger-border: #6B2C30;
 
   --shadow-card: 0 2px 6px rgba(0, 0, 0, 0.35), 0 10px 24px -6px rgba(0, 0, 0, 0.45);
   --header-bg: rgba(20, 18, 17, 0.92);
@@ -123,6 +132,11 @@
   --color-text-secondary: #D9C2C8;
   --color-text-muted: #B3929B;
   --color-text-inverse: #1A0B10;
+  --color-ovulation-text: #F2D48E;
+  --color-feedback-error: #FCA5A5;
+  --color-danger-bg: #3D1620;
+  --color-danger-bg-hover: #4F1D2A;
+  --color-danger-border: #702A3C;
 
   --shadow-card: 0 0 0 1px rgba(230, 141, 161, 0.08), 0 4px 12px rgba(0, 0, 0, 0.42), 0 12px 28px -6px rgba(10, 2, 5, 0.6);
   --header-bg: rgba(26, 11, 16, 0.92);
@@ -168,7 +182,8 @@
 
 .theme-swatch-card {
   min-height: 54px;
-  padding: 10px 12px;
+  min-width: 0;
+  padding: 9px 10px;
   border-radius: 10px;
   border: 1px solid var(--color-border-subtle);
   background: var(--color-surface-card);
@@ -176,9 +191,37 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 6px;
   text-align: left;
   transition: transform 150ms var(--ease-out), border-color 150ms ease, background-color 150ms ease;
+}
+
+.stepper-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 4px;
+  border-radius: var(--radius-inner);
+  border: 1px solid var(--color-border-subtle);
+  background: var(--color-canvas-base);
+}
+
+.stepper-btn {
+  min-width: 36px;
+  min-height: 36px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border-subtle);
+  background: var(--color-surface-card);
+  color: var(--color-text-primary);
+  font-size: 1.05rem;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}
+
+.stepper-btn:active {
+  transform: scale(0.94);
 }
 
 .theme-swatch-card:hover {
@@ -232,6 +275,7 @@ body {
   margin: 0;
   min-height: 100dvh;
   background-color: var(--color-canvas-base);
+  overflow-x: clip;
 }
 
 button,
@@ -458,8 +502,8 @@ a:focus-visible {
   min-height: 44px;
   padding: 10px 16px;
   border-radius: var(--radius-btn);
-  border: 1px solid #FECACA;
-  background: #FEF2F2;
+  border: 1px solid var(--color-danger-border);
+  background: var(--color-danger-bg);
   color: var(--color-feedback-error);
   font-weight: 600;
   font-size: 0.9rem;
@@ -471,7 +515,7 @@ a:focus-visible {
 }
 
 .btn-danger:hover {
-  background: #FEE2E2;
+  background: var(--color-danger-bg-hover);
 }
 
 .btn-danger:active {
@@ -513,7 +557,7 @@ a:focus-visible {
 
 .phase-badge--ovulation {
   background: var(--color-brand-accent-soft);
-  color: #7D5E1F;
+  color: var(--color-ovulation-text);
   border: 1px solid rgba(197, 160, 89, 0.55);
 }
 
@@ -795,7 +839,7 @@ a:focus-visible {
 .cal-cell--ovulation {
   background: var(--color-brand-accent-soft);
   border: 1.5px solid var(--color-brand-accent);
-  color: #6B4E16;
+  color: var(--color-ovulation-text);
 }
 
 .cal-cell-num {
@@ -1011,6 +1055,8 @@ input[type='checkbox'][switch]:focus-visible {
 
 .nav-tab {
   min-height: 50px;
+  min-width: 0;
+  padding: 4px 2px;
   border: none;
   background: transparent;
   color: var(--color-text-muted);
@@ -1020,9 +1066,16 @@ input[type='checkbox'][switch]:focus-visible {
   align-items: center;
   justify-content: center;
   gap: 3px;
-  font-size: 0.73rem;
+  font-size: 0.7rem;
   font-weight: 600;
   transition: color 160ms ease, background-color 160ms ease, transform 140ms var(--ease-out);
+}
+
+.nav-tab span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .nav-tab:active {

@@ -361,7 +361,7 @@ export function DailyLogDialog({
       <section
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(3, 1fr)',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))',
           gap: 10,
         }}
       >

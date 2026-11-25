@@ -304,49 +304,105 @@ export function SettingsView({
           Used before 2+ cycles are logged; predictions adapt automatically from your history
         </p>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
-          <label className="field-group">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10 }}>
+          <div className="field-group">
             <span className="field-label">Cycle (days)</span>
-            <input
-              type="number"
-              min={21}
-              max={45}
-              className="input-control tabular"
-              value={settings.defaultCycleLength}
-              onChange={(e) => {
-                const n = Number(e.target.value);
-                if (n >= 21 && n <= 45) onUpdateSettings({ defaultCycleLength: n });
-              }}
-            />
-          </label>
-          <label className="field-group">
+            <div className="stepper-row">
+              <button
+                type="button"
+                className="stepper-btn"
+                aria-label="Decrease default cycle length"
+                onClick={() =>
+                  onUpdateSettings({
+                    defaultCycleLength: Math.max(21, settings.defaultCycleLength - 1),
+                  })
+                }
+              >
+                −
+              </button>
+              <span className="tabular" style={{ fontWeight: 700 }}>
+                {settings.defaultCycleLength}
+              </span>
+              <button
+                type="button"
+                className="stepper-btn"
+                aria-label="Increase default cycle length"
+                onClick={() =>
+                  onUpdateSettings({
+                    defaultCycleLength: Math.min(45, settings.defaultCycleLength + 1),
+                  })
+                }
+              >
+                +
+              </button>
+            </div>
+          </div>
+
+          <div className="field-group">
             <span className="field-label">Period (days)</span>
-            <input
-              type="number"
-              min={2}
-              max={10}
-              className="input-control tabular"
-              value={settings.defaultPeriodLength}
-              onChange={(e) => {
-                const n = Number(e.target.value);
-                if (n >= 2 && n <= 10) onUpdateSettings({ defaultPeriodLength: n });
-              }}
-            />
-          </label>
-          <label className="field-group">
+            <div className="stepper-row">
+              <button
+                type="button"
+                className="stepper-btn"
+                aria-label="Decrease default period length"
+                onClick={() =>
+                  onUpdateSettings({
+                    defaultPeriodLength: Math.max(2, settings.defaultPeriodLength - 1),
+                  })
+                }
+              >
+                −
+              </button>
+              <span className="tabular" style={{ fontWeight: 700 }}>
+                {settings.defaultPeriodLength}
+              </span>
+              <button
+                type="button"
+                className="stepper-btn"
+                aria-label="Increase default period length"
+                onClick={() =>
+                  onUpdateSettings({
+                    defaultPeriodLength: Math.min(10, settings.defaultPeriodLength + 1),
+                  })
+                }
+              >
+                +
+              </button>
+            </div>
+          </div>
+
+          <div className="field-group">
             <span className="field-label">Luteal (days)</span>
-            <input
-              type="number"
-              min={10}
-              max={18}
-              className="input-control tabular"
-              value={settings.lutealLength}
-              onChange={(e) => {
-                const n = Number(e.target.value);
-                if (n >= 10 && n <= 18) onUpdateSettings({ lutealLength: n });
-              }}
-            />
-          </label>
+            <div className="stepper-row">
+              <button
+                type="button"
+                className="stepper-btn"
+                aria-label="Decrease luteal phase length"
+                onClick={() =>
+                  onUpdateSettings({
+                    lutealLength: Math.max(10, settings.lutealLength - 1),
+                  })
+                }
+              >
+                −
+              </button>
+              <span className="tabular" style={{ fontWeight: 700 }}>
+                {settings.lutealLength}
+              </span>
+              <button
+                type="button"
+                className="stepper-btn"
+                aria-label="Increase luteal phase length"
+                onClick={() =>
+                  onUpdateSettings({
+                    lutealLength: Math.min(18, settings.lutealLength + 1),
+                  })
+                }
+              >
+                +
+              </button>
+            </div>
+          </div>
         </div>
 
         <div className="setting-row" style={{ marginTop: 10 }}>
@@ -419,7 +475,7 @@ export function SettingsView({
         </label>
 
         {settings.pillPack.enabled ? (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginTop: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8, marginTop: 10 }}>
             <label className="field-group">
               <span className="field-label">Regimen</span>
               <select
