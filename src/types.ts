@@ -86,9 +86,18 @@ export interface PillPackSettings {
 
 export interface PartnerCarePing {
   id: string;
+  direction?: 'to_primary' | 'to_partner';
+  kind?: 'note' | 'hug' | 'request';
   message: string;
   senderLabel: string;
   sentAt: string; // ISO timestamp
+  reaction?: string;
+  seenAt?: string;
+}
+
+export interface PartnerCareThread {
+  pings: PartnerCarePing[];
+  updatedAt: string;
 }
 
 export interface DailyLog {
@@ -125,6 +134,7 @@ export interface UserSettings {
   mode: TrackingMode;
   birthControlMode: boolean;
   simpleMode: boolean;
+  partnerOnlyMode?: boolean;
   theme: ThemePreference;
   language: AppLanguage;
   defaultCycleLength: number;
@@ -290,6 +300,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   mode: 'cycle',
   birthControlMode: false,
   simpleMode: false,
+  partnerOnlyMode: false,
   theme: 'system',
   language: 'en',
   defaultCycleLength: 28,

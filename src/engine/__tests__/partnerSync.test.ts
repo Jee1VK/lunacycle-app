@@ -5,13 +5,18 @@ import {
   buildPartnerTextSummary,
   createDefaultPartnerShareConfig,
   decryptPartnerCarePing,
+  decryptPartnerCareThread,
   decryptPartnerSnapshot,
   encryptPartnerCarePing,
+  encryptPartnerCareThread,
   encryptPartnerSnapshot,
   generatePartnerCode,
+  getPartnerCommunicationCues,
   getPartnerSupportTips,
+  getSmartCarePingSuggestions,
   hashPartnerPin,
 } from '../partnerSync';
+import { generateQrMatrix } from '../qrCode';
 import { ensureTemporal } from '../temporal';
 import { createEmptyLog, createInitialData } from '../../types';
 
@@ -58,7 +63,7 @@ describe('partnerSync engine', () => {
     expect(serialized).not.toContain('sexLogged');
     expect(snapAll.todaySymptoms).toEqual(['cramps', 'fatigue']);
     expect(snapAll.ovulationDate).toBe('2026-05-15');
-    expect(snapAll.upcomingDays).toHaveLength(14);
+    expect(snapAll.upcomingDays).toHaveLength(30);
 
     // 2. With selective permissions disabled
     const cfgMinimal = {
@@ -144,5 +149,53 @@ describe('partnerSync engine', () => {
     expect(snap.upcomingDays?.some((d) => d.phase === 'fertile' || d.phase === 'ovulation')).toBe(false);
     expect(snap.todayNeedStatus).toBe("I'd love a hug");
     expect(snap.comfortPreferences).toEqual(['Warm tea / chai', 'Heating pad']);
+
+    // Communication cues & smart ping suggestions
+    const cue = getPartnerCommunicationCues(snap);
+    expect(cue.sayThis.length).toBeGreaterThan(10);
+    expect(cue.avoidThis.length).toBeGreaterThan(10);
+    const suggestions = getSmartCarePingSuggestions(snap);
+    expect(suggestions).toHaveLength(4);
+
+    // Offline QR matrix generator
+    const qr = generateQrMatrix('https://jee1vk.github.io/lunacycle-app/?partner=KUB789');
+    expect(qr.length).toBeGreaterThanOrEqual(29);
+    expect(qr.length).toBe(qr[0].length);
+    // Top-left 7x7 finder outer border must be dark
+    expect(qr[0][0]).toBe(true);
+    expect(qr[0][6]).toBe(true);
+    expect(qr[6][0]).toBe(true);
+  });
+
+  it('encrypts and decrypts two-way PartnerCareThread with reactions, hugs, and reverse requests', async () => {
+    const thread = {
+      pings: [
+        {
+          id: 'req-1',
+          direction: 'to_partner' as const,
+          kind: 'request' as const,
+          message: 'Could use warm tea / coffee',
+          senderLabel: 'Priya',
+          sentAt: '2026-06-01T10:05:00.000Z',
+        },
+        {
+          id: 'care-1',
+          direction: 'to_primary' as const,
+          kind: 'hug' as const,
+          message: 'Sending you a warm hug',
+          senderLabel: 'Jeevan',
+          sentAt: '2026-06-01T10:00:00.000Z',
+          reaction: '❤️ Love this',
+          seenAt: '2026-06-01T10:02:00.000Z',
+        },
+      ],
+      updatedAt: '2026-06-01T10:05:00.000Z',
+    };
+    const env = await encryptPartnerCareThread(thread, 'KUB789', '2468');
+    expect(JSON.stringify(env)).not.toContain('warm tea');
+    const dec = await decryptPartnerCareThread(env, 'KUB789', '2468');
+    expect(dec.pings).toHaveLength(2);
+    expect(dec.pings[0].direction).toBe('to_partner');
+    expect(dec.pings[1].reaction).toBe('❤️ Love this');
   });
 });

@@ -11,11 +11,14 @@ import {
   Heart,
   HeartHandshake,
   Link2,
+  MessageCircleHeart,
   Pill,
+  QrCode,
   RefreshCw,
   Send,
   Share2,
   Shield,
+  Smartphone,
   Sparkles,
   Trash2,
   Unlink,
@@ -42,22 +45,27 @@ import {
   deletePartnerSnapshot,
   fetchPartnerSnapshot,
   generatePartnerCode,
+  getPartnerCommunicationCues,
   getPartnerDailyBodyForecast,
   getPartnerKeyUpcomingDates,
   getPartnerSupportTips,
+  getSmartCarePingSuggestions,
   hashPartnerPin,
   pushPartnerCarePing,
   pushPartnerSnapshot,
 } from '../engine/partnerSync';
+import { generateQrMatrix } from '../engine/qrCode';
 import { daysBetween, formatShortDate, formatWeekdayShort, getDayOfMonth } from '../engine/temporal';
 import type {
   CycleStats,
   LunaData,
+  PartnerCareThread,
   PartnerShareConfig,
   PartnerSnapshot,
   PartnerWatchConfig,
   TodaySummary,
 } from '../types';
+import { ModalDialog } from './ModalDialog';
 import { PartnerDiscoverSection } from './PartnerDiscoverSection';
 
 interface PartnerViewProps {
@@ -70,11 +78,23 @@ interface PartnerViewProps {
   onUpdateWatchConfig: (cfg: PartnerWatchConfig | null) => void;
   watchedSnapshot: PartnerSnapshot | null;
   onUpdateWatchedSnapshot: (snap: PartnerSnapshot | null) => void;
+  careThread: PartnerCareThread;
+  onUpdateCareThread: (thread: PartnerCareThread) => void;
+  partnerOnlyMode: boolean;
+  onTogglePartnerOnlyMode: (enabled: boolean) => void;
   prefillPartnerCode?: string | null;
   pinAuthError?: boolean;
   onClearPinAuthError?: () => void;
   onNotify: (msg: string) => void;
 }
+
+const CARE_KIT_ITEMS = [
+  'Heating pad charged / ready',
+  'Favorite snacks or dark chocolate',
+  'Herbal tea / ginger chai stocked',
+  'Pain reliever & hydration on hand',
+  'Pads / tampons / comfort essentials',
+];
 
 const NEED_BEACON_OPTIONS = [
   "I'd love a hug",
@@ -103,19 +123,47 @@ export function PartnerView({
   onUpdateWatchConfig,
   watchedSnapshot,
   onUpdateWatchedSnapshot,
+  careThread,
+  onUpdateCareThread,
+  partnerOnlyMode,
+  onTogglePartnerOnlyMode,
   prefillPartnerCode,
   pinAuthError = false,
   onClearPinAuthError,
   onNotify,
 }: PartnerViewProps) {
   const [activeRoleTab, setActiveRoleTab] = useState<'watch' | 'share'>(() =>
-    prefillPartnerCode ? 'watch' : shareConfig.enabled && !watchConfig ? 'share' : 'watch',
+    partnerOnlyMode || prefillPartnerCode ? 'watch' : shareConfig.enabled && !watchConfig ? 'share' : 'watch',
   );
   const [pinInput, setPinInput] = useState('');
   const [showSharePin, setShowSharePin] = useState(false);
+  const [showQrModal, setShowQrModal] = useState(false);
+  const [forecastDaysCount, setForecastDaysCount] = useState<14 | 30>(14);
   const [copied, setCopied] = useState(false);
   const [shareStatus, setShareStatus] = useState<string | null>(null);
   const [syncingShare, setSyncingShare] = useState(false);
+
+  const careKitStorageKey = `luna_partner_carekit_${watchedSnapshot?.nextPeriodDate ?? summary.today}`;
+  const [careKitChecked, setCareKitChecked] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem(careKitStorageKey);
+      return raw ? (JSON.parse(raw) as string[]) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const toggleCareKitItem = (item: string) => {
+    setCareKitChecked((prev) => {
+      const next = prev.includes(item) ? prev.filter((x) => x !== item) : [...prev, item];
+      try {
+        localStorage.setItem(careKitStorageKey, JSON.stringify(next));
+      } catch {
+        // Ignore
+      }
+      return next;
+    });
+  };
 
   const [connectCode, setConnectCode] = useState(prefillPartnerCode || watchConfig?.code || '');
   const [connectPin, setConnectPin] = useState('');
@@ -136,22 +184,16 @@ export function PartnerView({
     }
   }, [prefillPartnerCode]);
 
-  const CARE_PING_PRESETS = [
-    'Picking up a heating pad or warm tea — need anything?',
-    'Thinking of you today — take it easy tonight',
-    'Dinner is on me tonight — relax and rest',
-    'Want me to grab dark chocolate or your favorite snacks?',
-  ];
-
-  const handleSendCarePing = async (msg: string) => {
+  const handleSendCarePing = async (msg: string, kind: 'note' | 'hug' = 'note') => {
     if (!watchConfig) return;
     setSendingCarePing(true);
     const sender = watchConfig.partnerName?.trim() || 'Your Partner';
-    const res = await pushPartnerCarePing(watchConfig, msg, sender);
+    const res = await pushPartnerCarePing(watchConfig, msg, sender, kind);
     setSendingCarePing(false);
     if (res.ok) {
+      if (res.thread) onUpdateCareThread(res.thread);
       setCarePingInput('');
-      onNotify('Encrypted care ping sent!');
+      onNotify(kind === 'hug' ? 'Warm hug pulse sent!' : 'Encrypted care ping sent!');
     } else {
       onNotify(res.error || 'Could not send care ping.');
     }
@@ -336,33 +378,44 @@ export function PartnerView({
   const supportTips = watchedSnapshot ? getPartnerSupportTips(watchedSnapshot) : [];
   const bodyForecast = watchedSnapshot ? getPartnerDailyBodyForecast(watchedSnapshot) : null;
   const keyUpcomingDates = watchedSnapshot ? getPartnerKeyUpcomingDates(watchedSnapshot) : [];
+  const commCue = watchedSnapshot ? getPartnerCommunicationCues(watchedSnapshot) : null;
+  const smartPingSuggestions = watchedSnapshot ? getSmartCarePingSuggestions(watchedSnapshot) : [];
   const staleDays = watchedSnapshot ? Math.max(0, daysBetween(watchedSnapshot.asOfDate, summary.today)) : 0;
+  const showCareKitExpanded = Boolean(
+    watchedSnapshot &&
+      (watchedSnapshot.isPeriodActiveToday ||
+        (watchedSnapshot.daysUntilNextPeriod !== null && watchedSnapshot.daysUntilNextPeriod <= 4)),
+  );
+  const inviteUrl = `https://jee1vk.github.io/lunacycle-app/?partner=${shareConfig.code}`;
+  const qrMatrix = showQrModal ? generateQrMatrix(inviteUrl) : null;
 
   return (
     <>
-      {/* ROLE-AWARE TAB SWITCHER */}
-      <div className="segmented" style={{ gridTemplateColumns: '1fr 1fr' }} role="tablist" aria-label="Partner mode">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeRoleTab === 'watch'}
-          aria-pressed={activeRoleTab === 'watch'}
-          className="segmented-btn"
-          onClick={() => setActiveRoleTab('watch')}
-        >
-          Partner View
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeRoleTab === 'share'}
-          aria-pressed={activeRoleTab === 'share'}
-          className="segmented-btn"
-          onClick={() => setActiveRoleTab('share')}
-        >
-          Share My Cycle
-        </button>
-      </div>
+      {/* ROLE-AWARE TAB SWITCHER (hidden if locked into Partner-Only Mode) */}
+      {!partnerOnlyMode ? (
+        <div className="segmented" style={{ gridTemplateColumns: '1fr 1fr' }} role="tablist" aria-label="Partner mode">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeRoleTab === 'watch'}
+            aria-pressed={activeRoleTab === 'watch'}
+            className="segmented-btn"
+            onClick={() => setActiveRoleTab('watch')}
+          >
+            Partner View
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeRoleTab === 'share'}
+            aria-pressed={activeRoleTab === 'share'}
+            className="segmented-btn"
+            onClick={() => setActiveRoleTab('share')}
+          >
+            Share My Cycle
+          </button>
+        </div>
+      ) : null}
 
       {activeRoleTab === 'watch' ? (
       <>
@@ -744,6 +797,50 @@ export function PartnerView({
               </ul>
             </div>
 
+            {/* De-Escalation: What to Say vs. Avoid Saying */}
+            {commCue ? (
+              <div className="card-subtle" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ fontWeight: 700, fontSize: '0.88rem', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <MessageCircleHeart size={15} color="var(--color-brand-primary)" />
+                  Communication Cue
+                </div>
+                <div style={{ fontSize: '0.82rem', color: 'var(--color-brand-secondary)' }}>
+                  <strong>Say this:</strong> {commCue.sayThis}
+                </div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
+                  <strong>Avoid:</strong> {commCue.avoidThis}
+                </div>
+              </div>
+            ) : null}
+
+            {/* Pre-Period Care Kit Prep Checklist */}
+            <details className="card-subtle" open={showCareKitExpanded}>
+              <summary style={{ cursor: 'pointer', fontWeight: 700, fontSize: '0.88rem', listStyle: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>Pre-Period Care Kit Checklist</span>
+                <span className="phase-badge phase-badge--follicular tabular" style={{ fontSize: '0.72rem' }}>
+                  {careKitChecked.length}/{CARE_KIT_ITEMS.length} ready
+                </span>
+              </summary>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 }}>
+                {CARE_KIT_ITEMS.map((item) => {
+                  const done = careKitChecked.includes(item);
+                  return (
+                    <button
+                      key={item}
+                      type="button"
+                      className="chip"
+                      aria-pressed={done}
+                      style={{ justifyContent: 'flex-start', borderRadius: 10, minHeight: 38, fontSize: '0.82rem' }}
+                      onClick={() => toggleCareKitItem(item)}
+                    >
+                      <Check size={14} style={{ opacity: done ? 1 : 0.25 }} />
+                      <span style={{ textDecoration: done ? 'line-through' : 'none' }}>{item}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </details>
+
             {/* Key Upcoming Dates Timeline */}
             {keyUpcomingDates.length > 0 ? (
               <div className="card-subtle" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -765,15 +862,30 @@ export function PartnerView({
               </div>
             ) : null}
 
-            {/* Interactive Tappable 14-Day Forecast Strip + Legend */}
+            {/* Interactive Tappable 14/30-Day "Best Days to Plan" Forecast + Legend */}
             {watchedSnapshot.upcomingDays && watchedSnapshot.upcomingDays.length > 0 ? (
               <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
-                  <div className="metric-label">Next 14 Days Forecast</div>
-                  <span className="section-caption" style={{ fontSize: '0.72rem' }}>Tap any day</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <div className="metric-label">Best Days to Plan ({forecastDaysCount}d)</div>
+                  {watchedSnapshot.upcomingDays.length > 14 ? (
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      {([14, 30] as const).map((cnt) => (
+                        <button
+                          key={cnt}
+                          type="button"
+                          className="chip"
+                          aria-pressed={forecastDaysCount === cnt}
+                          style={{ minHeight: 28, padding: '2px 9px', fontSize: '0.72rem' }}
+                          onClick={() => setForecastDaysCount(cnt)}
+                        >
+                          {cnt}d
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
                 <div className="week-strip" style={{ gap: 5 }}>
-                  {watchedSnapshot.upcomingDays.map((item) => {
+                  {watchedSnapshot.upcomingDays.slice(0, forecastDaysCount).map((item) => {
                     const isSelected = selectedForecastDay?.date === item.date;
                     const cls = [
                       'week-day-btn',
@@ -793,12 +905,12 @@ export function PartnerView({
                         key={item.date}
                         type="button"
                         className={cls}
-                        style={{ minHeight: 48 }}
+                        style={{ minHeight: 46 }}
                         onClick={() => setSelectedForecastDay(isSelected ? null : item)}
                         aria-label={`${formatShortDate(item.date)}: ${PHASE_INFO[item.phase].shortLabel}`}
                       >
                         <span className="week-day-letter">{formatWeekdayShort(item.date)}</span>
-                        <span className="week-day-num tabular" style={{ fontSize: '0.82rem' }}>
+                        <span className="week-day-num tabular" style={{ fontSize: '0.8rem' }}>
                           {getDayOfMonth(item.date)}
                         </span>
                       </button>
@@ -809,7 +921,9 @@ export function PartnerView({
                   <div className="card-subtle" style={{ marginTop: 8, padding: '8px 12px', fontSize: '0.82rem' }}>
                     <strong>{formatShortDate(selectedForecastDay.date)} — {PHASE_INFO[selectedForecastDay.phase].title}:</strong>{' '}
                     <span style={{ color: 'var(--color-text-secondary)' }}>
-                      {PHASE_INFO[selectedForecastDay.phase].gentleCare}
+                      {selectedForecastDay.phase === 'follicular' || selectedForecastDay.phase === 'fertile' || selectedForecastDay.phase === 'ovulation'
+                        ? 'Great day for dinner out, trips, or social plans.'
+                        : 'Better to keep evenings light, cozy, and low-pressure.'}
                     </span>
                   </div>
                 ) : null}
@@ -944,15 +1058,30 @@ export function PartnerView({
                   }
                 />
               </label>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                <span className="field-label" style={{ fontSize: '0.76rem' }}>Smart suggestions for today</span>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  style={{ minHeight: 34, padding: '4px 10px', fontSize: '0.76rem' }}
+                  disabled={sendingCarePing}
+                  onClick={() =>
+                    void handleSendCarePing('Sending you a warm hug & thinking of you right now', 'hug')
+                  }
+                >
+                  <Heart size={13} />
+                  Send Warm Hug
+                </button>
+              </div>
               <div className="chip-group">
-                {CARE_PING_PRESETS.map((preset) => (
+                {smartPingSuggestions.map((preset) => (
                   <button
                     key={preset}
                     type="button"
                     className="chip"
                     style={{ fontSize: '0.78rem', textAlign: 'left', height: 'auto', padding: '7px 11px' }}
                     disabled={sendingCarePing}
-                    onClick={() => void handleSendCarePing(preset)}
+                    onClick={() => void handleSendCarePing(preset, 'note')}
                   >
                     {preset}
                   </button>
@@ -972,13 +1101,76 @@ export function PartnerView({
                   className="btn-primary"
                   style={{ minHeight: 44, padding: '8px 14px', flexShrink: 0 }}
                   disabled={sendingCarePing || !carePingInput.trim()}
-                  onClick={() => void handleSendCarePing(carePingInput)}
+                  onClick={() => void handleSendCarePing(carePingInput, 'note')}
                 >
                   <Send size={15} />
                   Send
                 </button>
               </div>
+
+              {/* Mini Encrypted Care Feed (Last 5 Pings + Her Reactions & Reverse Requests) */}
+              {careThread.pings.length > 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4, paddingTop: 8, borderTop: '1px solid var(--color-border-subtle)' }}>
+                  <div className="metric-label">Recent Encrypted Pings (Last 5)</div>
+                  {careThread.pings.map((p) => (
+                    <div
+                      key={p.id}
+                      style={{
+                        padding: '8px 10px',
+                        borderRadius: 8,
+                        background:
+                          p.direction === 'to_partner'
+                            ? 'var(--color-brand-accent-soft)'
+                            : 'var(--color-surface-card)',
+                        border: '1px solid var(--color-border-subtle)',
+                        fontSize: '0.8rem',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>
+                        <strong>
+                          {p.direction === 'to_partner'
+                            ? `Request from ${p.senderLabel}`
+                            : p.kind === 'hug'
+                              ? 'Warm Hug Sent'
+                              : `Sent by ${p.senderLabel}`}
+                        </strong>
+                        <span className="tabular">
+                          {new Date(p.sentAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                      <div style={{ marginTop: 3, color: 'var(--color-text-primary)', fontWeight: 500 }}>
+                        {p.message}
+                      </div>
+                      {p.reaction ? (
+                        <div style={{ marginTop: 4, fontSize: '0.74rem', color: 'var(--color-brand-primary)', fontWeight: 600 }}>
+                          {watchedSnapshot.profileLabel} reacted: {p.reaction}
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </div>
+
+            {/* Dedicated Partner-Only Phone Mode Toggle */}
+            <label className="setting-row card-subtle" htmlFor="partner-only-mode-switch" style={{ padding: '10px 14px', borderBottom: 'none' }}>
+              <div className="setting-label-wrap">
+                <span className="setting-title" style={{ fontSize: '0.86rem', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <Smartphone size={14} color="var(--color-brand-secondary)" />
+                  Partner-Only Phone Mode
+                </span>
+                <span className="setting-desc">
+                  Hides period-logging tabs so this phone stays a clean Partner Companion app
+                </span>
+              </div>
+              <input
+                id="partner-only-mode-switch"
+                type="checkbox"
+                checked={partnerOnlyMode}
+                onChange={(e) => onTogglePartnerOnlyMode(e.target.checked)}
+                {...({ switch: '' } as Record<string, string>)}
+              />
+            </label>
           </div>
         )}
 
@@ -1152,6 +1344,15 @@ export function PartnerView({
               >
                 {copied ? <Check size={15} /> : <Link2 size={15} />}
                 {copied ? 'Copied' : 'Copy Invite'}
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                style={{ minHeight: 42, padding: '8px 12px', fontSize: '0.82rem' }}
+                onClick={() => setShowQrModal(true)}
+              >
+                <QrCode size={15} />
+                QR
               </button>
               <button
                 type="button"
@@ -1390,6 +1591,44 @@ export function PartnerView({
         </div>
       </section>
       )}
+
+      {/* Offline QR Code Pairing Modal */}
+      <ModalDialog
+        open={showQrModal}
+        title="Scan to Connect Partner"
+        subtitle={`Code: ${shareConfig.code}${shareConfig.pin ? ` · PIN: ${shareConfig.pin}` : ''}`}
+        onClose={() => setShowQrModal(false)}
+        footer={
+          <button type="button" className="btn-primary" onClick={() => setShowQrModal(false)}>
+            Done
+          </button>
+        }
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, textAlign: 'center' }}>
+          {qrMatrix ? (
+            <div style={{ background: '#FFFFFF', padding: 14, borderRadius: 12, border: '1px solid var(--color-border-subtle)' }}>
+              <svg
+                width="200"
+                height="200"
+                viewBox={`0 0 ${qrMatrix.length} ${qrMatrix.length}`}
+                shapeRendering="crispEdges"
+                role="img"
+                aria-label={`QR code for Partner Code ${shareConfig.code}`}
+              >
+                <rect width={qrMatrix.length} height={qrMatrix.length} fill="#FFFFFF" />
+                {qrMatrix.map((row, r) =>
+                  row.map((cell, c) =>
+                    cell ? <rect key={`${r}-${c}`} x={c} y={r} width={1} height={1} fill="#1C1917" /> : null,
+                  ),
+                )}
+              </svg>
+            </div>
+          ) : null}
+          <p className="section-caption">
+            Have your partner point their phone camera at this QR code to open LunaCycle with your Partner Code pre-filled.
+          </p>
+        </div>
+      </ModalDialog>
     </>
   );
 }

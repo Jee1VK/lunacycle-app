@@ -55,7 +55,10 @@ interface TodayViewProps {
   summary: TodaySummary;
   reminders: ActiveReminder[];
   incomingCarePing: PartnerCarePing | null;
+  partnerSharingEnabled: boolean;
   onDismissCarePing: () => void;
+  onReactToCarePing: (pingId: string, reaction: string) => void;
+  onSendPrimaryCareRequest: (message: string) => void;
   onQuickTogglePeriodToday: () => void;
   onOpenLogDialog: (date: string) => void;
   onLoadSampleData: () => void;
@@ -74,7 +77,10 @@ export function TodayView({
   summary,
   reminders,
   incomingCarePing,
+  partnerSharingEnabled,
   onDismissCarePing,
+  onReactToCarePing,
+  onSendPrimaryCareRequest,
   onQuickTogglePeriodToday,
   onOpenLogDialog,
   onLoadSampleData,
@@ -322,7 +328,7 @@ export function TodayView({
         ) : null}
       </section>
 
-      {/* Incoming Encrypted Partner Care Ping */}
+      {/* Incoming Encrypted Partner Care Ping with 1-Tap Reactions */}
       {incomingCarePing ? (
         <section
           className="card"
@@ -337,11 +343,18 @@ export function TodayView({
               <Heart size={18} color="var(--color-brand-primary)" style={{ flexShrink: 0, marginTop: 2 }} />
               <div>
                 <p style={{ margin: 0, fontSize: '0.76rem', fontWeight: 700, color: 'var(--color-brand-primary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  Care Ping from {incomingCarePing.senderLabel}
+                  {incomingCarePing.kind === 'hug'
+                    ? `Warm Hug from ${incomingCarePing.senderLabel}`
+                    : `Care Ping from ${incomingCarePing.senderLabel}`}
                 </p>
                 <p style={{ margin: '4px 0 0', fontSize: '0.92rem', fontWeight: 600, color: 'var(--color-text-primary)' }}>
                   {incomingCarePing.message}
                 </p>
+                {incomingCarePing.reaction ? (
+                  <p style={{ margin: '4px 0 0', fontSize: '0.76rem', fontWeight: 600, color: 'var(--color-brand-secondary)' }}>
+                    You reacted: {incomingCarePing.reaction}
+                  </p>
+                ) : null}
               </div>
             </div>
             <button
@@ -353,6 +366,48 @@ export function TodayView({
             >
               <X size={16} />
             </button>
+          </div>
+          <div className="chip-group" style={{ marginTop: 10 }}>
+            {['❤️ Love this', '☕ Yes please!', '🤗 Need a hug', '🙏 Thank you', '💤 Resting'].map((rx) => (
+              <button
+                key={rx}
+                type="button"
+                className="chip"
+                aria-pressed={incomingCarePing.reaction === rx}
+                style={{ minHeight: 34, padding: '4px 10px', fontSize: '0.76rem' }}
+                onClick={() => onReactToCarePing(incomingCarePing.id, rx)}
+              >
+                {rx}
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {/* Reverse 1-Tap "Ask Partner" Care Request Strip (when Partner Sharing is active) */}
+      {partnerSharingEnabled ? (
+        <section className="card-subtle" aria-label="Quick care requests to partner">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+            <Heart size={14} color="var(--color-brand-primary)" />
+            <strong style={{ fontSize: '0.82rem' }}>Send Partner a Quick Request</strong>
+          </div>
+          <div className="chip-group">
+            {[
+              'Could use warm tea / coffee',
+              'Can you handle dinner tonight?',
+              'Need a hug when you’re back',
+              'Please pick up pads / meds',
+            ].map((req) => (
+              <button
+                key={req}
+                type="button"
+                className="chip"
+                style={{ minHeight: 34, padding: '5px 10px', fontSize: '0.76rem' }}
+                onClick={() => onSendPrimaryCareRequest(req)}
+              >
+                {req}
+              </button>
+            ))}
           </div>
         </section>
       ) : null}

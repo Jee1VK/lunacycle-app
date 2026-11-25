@@ -82,9 +82,11 @@ import {
   clearPartnerCarePing,
   createDefaultPartnerShareConfig,
   deletePartnerSnapshot,
-  fetchPartnerCarePing,
+  fetchCareThreadForPartner,
+  fetchCareThreadForPrimary,
   fetchPartnerSnapshot,
   pushPartnerSnapshot,
+  sendPrimaryCareRequestOrReaction,
 } from './engine/partnerSync';
 import {
   computeActiveReminders,
@@ -95,6 +97,7 @@ import type {
   DailyLog,
   LunaData,
   PartnerCarePing,
+  PartnerCareThread,
   PartnerShareConfig,
   PartnerSnapshot,
   PartnerWatchConfig,
@@ -122,6 +125,7 @@ export function App() {
   );
   const [partnerWatchConfig, setPartnerWatchConfig] = useState<PartnerWatchConfig | null>(null);
   const [watchedPartnerSnapshot, setWatchedPartnerSnapshot] = useState<PartnerSnapshot | null>(null);
+  const [careThread, setCareThread] = useState<PartnerCareThread>({ pings: [], updatedAt: '' });
   const [incomingCarePing, setIncomingCarePing] = useState<PartnerCarePing | null>(null);
   const [prefillPartnerCode, setPrefillPartnerCode] = useState<string | null>(null);
   const [partnerPinAuthError, setPartnerPinAuthError] = useState(false);
@@ -373,29 +377,45 @@ export function App() {
     partnerShareConfig.comfortPreferences,
   ]);
 
-  // Poll for encrypted two-way Partner Care Pings when sharing is enabled
+  // Auto-land on Partner tab when Partner-Only Phone Mode is enabled
+  useEffect(() => {
+    if (ready && data.settings.partnerOnlyMode && activeTab !== 'partner' && activeTab !== 'settings') {
+      setActiveTab('partner');
+    }
+  }, [ready, data.settings.partnerOnlyMode, activeTab]);
+
+  // Poll for encrypted two-way Partner Care Thread (Primary User receiving pings & hugs)
   useEffect(() => {
     if (!ready || locked || !partnerShareConfig.enabled || !partnerShareConfig.syncServerUrl.trim()) {
       return;
     }
     let cancelled = false;
     const pollCare = async () => {
-      const ping = await fetchPartnerCarePing(partnerShareConfig);
+      const thread = await fetchCareThreadForPrimary(partnerShareConfig);
       if (cancelled) return;
-      if (ping) {
+      setCareThread(thread);
+      const latestToPrimary = thread.pings.find((p) => (p.direction ?? 'to_primary') === 'to_primary') ?? null;
+      if (latestToPrimary) {
         const dismissedId = localStorage.getItem('luna_dismissed_care_ping_id');
-        if (dismissedId !== ping.id) {
-          setIncomingCarePing(ping);
-          const notifKey = `luna_care_ping_notif_${ping.id}`;
+        if (dismissedId !== latestToPrimary.id) {
+          setIncomingCarePing(latestToPrimary);
+          const notifKey = `luna_care_ping_notif_${latestToPrimary.id}`;
           if (!sessionStorage.getItem(notifKey)) {
             sessionStorage.setItem(notifKey, '1');
+            if (latestToPrimary.kind === 'hug' && 'vibrate' in navigator) {
+              navigator.vibrate([120, 80, 120]);
+            }
             dispatchGentleBrowserNotification(
-              `Care Ping from ${ping.senderLabel}`,
-              ping.message,
+              latestToPrimary.kind === 'hug'
+                ? `Warm Hug from ${latestToPrimary.senderLabel}`
+                : `Care Ping from ${latestToPrimary.senderLabel}`,
+              latestToPrimary.message,
               data.settings.disguiseMode,
             );
           }
         }
+      } else {
+        setIncomingCarePing(null);
       }
     };
     void pollCare();
@@ -471,6 +491,24 @@ export function App() {
       setPartnerPinAuthError(false);
       setWatchedPartnerSnapshot(res.snapshot);
       void saveCachedPartnerSnapshotToVault(res.snapshot);
+
+      // Also refresh encrypted 2-way Care Thread so partner sees her reactions & reverse Care Requests
+      const thread = await fetchCareThreadForPartner(partnerWatchConfig);
+      if (!cancelled) {
+        setCareThread(thread);
+        const latestReq = thread.pings.find((p) => p.direction === 'to_partner');
+        if (latestReq && partnerWatchConfig.alertsOnThisPhone) {
+          const reqKey = `luna_partner_req_${latestReq.id}`;
+          if (!sessionStorage.getItem(reqKey)) {
+            sessionStorage.setItem(reqKey, '1');
+            dispatchGentleBrowserNotification(
+              `Request from ${latestReq.senderLabel}`,
+              latestReq.message,
+              data.settings.disguiseMode,
+            );
+          }
+        }
+      }
 
       // Fire immediate symptom/phase care cue ONLY if snapshot is from today (prevents daily re-alerts on stale snapshots)
       if (partnerWatchConfig.alertsOnThisPhone && res.snapshot.asOfDate === today) {
@@ -859,6 +897,34 @@ export function App() {
     void clearPartnerCarePing(partnerShareConfig);
   };
 
+  const handleReactToCarePing = async (pingId: string, reaction: string) => {
+    const res = await sendPrimaryCareRequestOrReaction(partnerShareConfig, {
+      type: 'react',
+      pingId,
+      reaction,
+    });
+    if (res.ok && res.thread) {
+      setCareThread(res.thread);
+      setIncomingCarePing((prev) => (prev && prev.id === pingId ? { ...prev, reaction } : prev));
+      showToast(`Sent reaction: ${reaction}`);
+    } else {
+      showToast(res.error || 'Could not send reaction.');
+    }
+  };
+
+  const handleSendPrimaryCareRequest = async (message: string) => {
+    const res = await sendPrimaryCareRequestOrReaction(partnerShareConfig, {
+      type: 'request',
+      message,
+    });
+    if (res.ok && res.thread) {
+      setCareThread(res.thread);
+      showToast('Encrypted request sent to your partner!');
+    } else {
+      showToast(res.error || 'Could not send request.');
+    }
+  };
+
   const handleTriggerTestPillAlarm = () => {
     void pillAlarmAudio.unlock();
     const primaryTime = getPillReminderTimes(data.settings.pillPack)[0] ?? '21:00';
@@ -1100,7 +1166,10 @@ export function App() {
             summary={summary}
             reminders={activeReminders}
             incomingCarePing={incomingCarePing}
+            partnerSharingEnabled={partnerShareConfig.enabled}
             onDismissCarePing={handleDismissCarePing}
+            onReactToCarePing={(pingId, rx) => void handleReactToCarePing(pingId, rx)}
+            onSendPrimaryCareRequest={(msg) => void handleSendPrimaryCareRequest(msg)}
             onQuickTogglePeriodToday={handleQuickTogglePeriodToday}
             onOpenLogDialog={(d) => setLogDialogDate(d)}
             onLoadSampleData={handleLoadSampleData}
@@ -1139,6 +1208,14 @@ export function App() {
             onUpdateWatchConfig={handleUpdatePartnerWatchConfig}
             watchedSnapshot={watchedPartnerSnapshot}
             onUpdateWatchedSnapshot={handleUpdateWatchedPartnerSnapshot}
+            careThread={careThread}
+            onUpdateCareThread={setCareThread}
+            partnerOnlyMode={Boolean(data.settings.partnerOnlyMode)}
+            onTogglePartnerOnlyMode={(enabled) => {
+              handleUpdateSettings({ partnerOnlyMode: enabled });
+              if (enabled) setActiveTab('partner');
+              showToast(enabled ? 'Partner-Only Phone Mode enabled.' : 'Full LunaCycle tabs restored.');
+            }}
             prefillPartnerCode={prefillPartnerCode}
             pinAuthError={partnerPinAuthError}
             onClearPinAuthError={() => setPartnerPinAuthError(false)}
@@ -1189,28 +1266,36 @@ export function App() {
         ) : null}
       </main>
 
-      <nav className="bottom-nav" aria-label="Primary navigation">
-        <button
-          type="button"
-          className="nav-tab"
-          aria-current={activeTab === 'today' ? 'page' : undefined}
-          onClick={() => {
-            setCalendarEditInit(false);
-            setActiveTab('today');
-          }}
-        >
-          <Sparkles size={19} />
-          <span>{t.navToday}</span>
-        </button>
-        <button
-          type="button"
-          className="nav-tab"
-          aria-current={activeTab === 'calendar' ? 'page' : undefined}
-          onClick={() => setActiveTab('calendar')}
-        >
-          <Calendar size={19} />
-          <span>{t.navCalendar}</span>
-        </button>
+      <nav
+        className="bottom-nav"
+        aria-label="Primary navigation"
+        style={data.settings.partnerOnlyMode ? { gridTemplateColumns: 'repeat(2, 1fr)' } : undefined}
+      >
+        {!data.settings.partnerOnlyMode ? (
+          <>
+            <button
+              type="button"
+              className="nav-tab"
+              aria-current={activeTab === 'today' ? 'page' : undefined}
+              onClick={() => {
+                setCalendarEditInit(false);
+                setActiveTab('today');
+              }}
+            >
+              <Sparkles size={19} />
+              <span>{t.navToday}</span>
+            </button>
+            <button
+              type="button"
+              className="nav-tab"
+              aria-current={activeTab === 'calendar' ? 'page' : undefined}
+              onClick={() => setActiveTab('calendar')}
+            >
+              <Calendar size={19} />
+              <span>{t.navCalendar}</span>
+            </button>
+          </>
+        ) : null}
         <button
           type="button"
           className="nav-tab"
@@ -1223,18 +1308,20 @@ export function App() {
           <HeartHandshake size={19} />
           <span>{t.navPartner}</span>
         </button>
-        <button
-          type="button"
-          className="nav-tab"
-          aria-current={activeTab === 'insights' ? 'page' : undefined}
-          onClick={() => {
-            setCalendarEditInit(false);
-            setActiveTab('insights');
-          }}
-        >
-          <BarChart3 size={19} />
-          <span>{t.navInsights}</span>
-        </button>
+        {!data.settings.partnerOnlyMode ? (
+          <button
+            type="button"
+            className="nav-tab"
+            aria-current={activeTab === 'insights' ? 'page' : undefined}
+            onClick={() => {
+              setCalendarEditInit(false);
+              setActiveTab('insights');
+            }}
+          >
+            <BarChart3 size={19} />
+            <span>{t.navInsights}</span>
+          </button>
+        ) : null}
         <button
           type="button"
           className="nav-tab"

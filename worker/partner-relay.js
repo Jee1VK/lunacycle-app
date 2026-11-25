@@ -84,6 +84,17 @@ export default {
       const pinHeader = request.headers.get('X-LunaCycle-Pin') || '';
       const secretHeader = request.headers.get('X-LunaCycle-Write-Secret') || '';
 
+      const isAuthorizedCareCaller = async (partnerStored) => {
+        if (partnerStored.writeSecret && secretHeader) {
+          const validSecret = await constantTimeEqual(partnerStored.writeSecret, secretHeader);
+          if (validSecret) return true;
+        }
+        if (partnerStored.pinHash) {
+          return constantTimeEqual(partnerStored.pinHash, pinHeader);
+        }
+        return true;
+      };
+
       if (request.method === 'PUT') {
         const clientIp = request.headers.get('CF-Connecting-IP') || 'unknown';
         const rlKey = `rl:${clientIp}:${code}`;
@@ -103,14 +114,12 @@ export default {
           return json({ error: 'Partner code not found' }, 404);
         }
         const partnerStored = JSON.parse(partnerRaw);
-        if (partnerStored.pinHash) {
-          const validPin = await constantTimeEqual(partnerStored.pinHash, pinHeader);
-          if (!validPin) {
-            await env.LUNACYCLE_SYNC.put(rlKey, String(attempts + 1), {
-              expirationTtl: RATE_WINDOW_SECONDS,
-            });
-            return json({ error: 'Invalid PIN' }, 401);
-          }
+        const authorized = await isAuthorizedCareCaller(partnerStored);
+        if (!authorized) {
+          await env.LUNACYCLE_SYNC.put(rlKey, String(attempts + 1), {
+            expirationTtl: RATE_WINDOW_SECONDS,
+          });
+          return json({ error: 'Invalid PIN or writeSecret' }, 401);
         }
 
         let body = null;
@@ -131,15 +140,15 @@ export default {
 
       if (request.method === 'GET') {
         const partnerRaw = await env.LUNACYCLE_SYNC.get(partnerKey);
-        if (!partnerRaw) return json({ ping: null }, 200);
+        if (!partnerRaw) return json({ thread: null }, 200);
         const partnerStored = JSON.parse(partnerRaw);
-        if (partnerStored.writeSecret) {
-          const validSecret = await constantTimeEqual(partnerStored.writeSecret, secretHeader);
-          if (!validSecret) return json({ error: 'Unauthorized writeSecret' }, 403);
+        const authorized = await isAuthorizedCareCaller(partnerStored);
+        if (!authorized) {
+          return json({ error: 'Unauthorized' }, 401);
         }
         const rawCare = await env.LUNACYCLE_SYNC.get(careKey);
-        if (!rawCare) return json({ ping: null }, 200);
-        return json({ ping: JSON.parse(rawCare) }, 200);
+        if (!rawCare) return json({ thread: null }, 200);
+        return json({ thread: JSON.parse(rawCare) }, 200);
       }
 
       if (request.method === 'DELETE') {

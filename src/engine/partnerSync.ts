@@ -2,6 +2,7 @@ import type {
   CycleStats,
   LunaData,
   PartnerCarePing,
+  PartnerCareThread,
   PartnerShareConfig,
   PartnerSnapshot,
   PartnerWatchConfig,
@@ -187,7 +188,7 @@ export function buildPartnerSnapshot(
   };
 
   const upcomingDays = permissions.shareUpcomingForecast
-    ? Array.from({ length: 14 }, (_, idx) => {
+    ? Array.from({ length: 30 }, (_, idx) => {
         const d = addDays(summary.today, idx);
         const c = classifyDate(d, data.logs, stats, data.settings, summary.today);
         return { date: d, phase: maskFertilePhase(c.phase) };
@@ -380,6 +381,86 @@ export function getPartnerKeyUpcomingDates(
   return items.sort((a, b) => a.date.localeCompare(b.date)).slice(0, 3);
 }
 
+export interface PartnerCommunicationCue {
+  sayThis: string;
+  avoidThis: string;
+}
+
+export function getPartnerCommunicationCues(snapshot: PartnerSnapshot): PartnerCommunicationCue {
+  const symptoms = new Set(snapshot.todaySymptoms ?? []);
+  const moods = new Set(snapshot.todayMoods ?? []);
+
+  if (snapshot.mode === 'pregnancy') {
+    return {
+      sayThis: '“You’re doing something huge right now — let me handle dinner and errands tonight.”',
+      avoidThis: '“Why are you so tired already?” or comparing her pregnancy to someone else’s.',
+    };
+  }
+  if (symptoms.has('cramps') || symptoms.has('backache') || snapshot.phase === 'menstrual') {
+    return {
+      sayThis: '“I’m warming up the heating pad and grabbing tea — zero pressure tonight.”',
+      avoidThis: '“Is it really that bad?” or rushing her to stick to social plans.',
+    };
+  }
+  if (
+    moods.has('sensitive') ||
+    moods.has('irritable') ||
+    moods.has('anxious') ||
+    moods.has('low') ||
+    snapshot.phase === 'luteal'
+  ) {
+    return {
+      sayThis: '“Do you want me to just listen, give you quiet space, or help fix this?”',
+      avoidThis: '“Are you just moody because of your period?” (invalidating feelings always backfires).',
+    };
+  }
+  if (snapshot.phase === 'ovulation' || snapshot.phase === 'fertile') {
+    return {
+      sayThis: '“You seem energized — want to plan a nice dinner out or a weekend walk?”',
+      avoidThis: 'Over-scheduling without checking her energy first.',
+    };
+  }
+  return {
+    sayThis: '“How is your energy feeling today? Let’s plan something you’ll enjoy.”',
+    avoidThis: 'Assuming every day feels the same — a quick check-in shows real care.',
+  };
+}
+
+export function getSmartCarePingSuggestions(snapshot: PartnerSnapshot): string[] {
+  const symptoms = new Set(snapshot.todaySymptoms ?? []);
+  const moods = new Set(snapshot.todayMoods ?? []);
+  const list: string[] = [];
+
+  if (symptoms.has('cramps') || symptoms.has('backache')) {
+    list.push('Warming up the heating pad & tea for you tonight');
+  }
+  if (symptoms.has('headache') || symptoms.has('fatigue') || symptoms.has('insomnia')) {
+    list.push('Bringing water & keeping tonight super quiet so you can rest');
+  }
+  if (moods.has('sensitive') || moods.has('anxious') || moods.has('low')) {
+    list.push('Thinking of you — big no-pressure hug waiting when you’re ready');
+  }
+  if (snapshot.phase === 'menstrual' || snapshot.phase === 'predicted_period') {
+    list.push('Dinner is on me tonight — want dark chocolate or favorite snacks?');
+  } else if (snapshot.phase === 'ovulation' || snapshot.phase === 'fertile' || snapshot.phase === 'follicular') {
+    list.push('Want to grab dinner out or go for a nice evening walk tonight?');
+  } else {
+    list.push('Picking up warm tea or snacks on my way — need anything?');
+  }
+
+  const defaults = [
+    'Thinking of you today — take it easy tonight',
+    'Dinner is on me tonight — relax and rest',
+    'Picking up a heating pad or warm tea — need anything?',
+    'Want me to grab dark chocolate or your favorite snacks?',
+  ];
+  for (const d of defaults) {
+    if (list.length >= 4) break;
+    if (!list.includes(d)) list.push(d);
+  }
+  return list.slice(0, 4);
+}
+
 export function getPartnerSupportTips(snapshot: PartnerSnapshot): string[] {
   const tips: string[] = [];
 
@@ -520,8 +601,8 @@ export async function deletePartnerSnapshot(
   }
 }
 
-export async function encryptPartnerCarePing(
-  ping: PartnerCarePing,
+export async function encryptPartnerCareThread(
+  thread: PartnerCareThread,
   code: string,
   pin?: string,
 ): Promise<PartnerE2eeEnvelope> {
@@ -531,7 +612,7 @@ export async function encryptPartnerCarePing(
   crypto.getRandomValues(iv);
 
   const key = await derivePartnerKey(code, pin, salt);
-  const plaintext = new TextEncoder().encode(JSON.stringify(ping));
+  const plaintext = new TextEncoder().encode(JSON.stringify(thread));
   const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plaintext);
 
   return {
@@ -542,8 +623,38 @@ export async function encryptPartnerCarePing(
     saltBase64: toBase64(salt),
     ivBase64: toBase64(iv),
     ciphertextBase64: toBase64(new Uint8Array(ciphertext)),
-    updatedAt: ping.sentAt,
+    updatedAt: thread.updatedAt,
   };
+}
+
+export async function decryptPartnerCareThread(
+  envelope: PartnerE2eeEnvelope,
+  code: string,
+  pin?: string,
+): Promise<PartnerCareThread> {
+  const salt = fromBase64(envelope.saltBase64);
+  const iv = fromBase64(envelope.ivBase64);
+  const ciphertext = fromBase64(envelope.ciphertextBase64);
+  const key = await derivePartnerKey(code, pin, salt);
+  const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
+  const parsed = JSON.parse(new TextDecoder().decode(plaintext)) as PartnerCareThread | PartnerCarePing;
+  if ('pings' in parsed && Array.isArray(parsed.pings)) {
+    return parsed;
+  }
+  // Backwards compatibility with legacy single-ping payload
+  const legacy = parsed as PartnerCarePing;
+  return {
+    pings: [{ ...legacy, direction: legacy.direction ?? 'to_primary', kind: legacy.kind ?? 'note' }],
+    updatedAt: legacy.sentAt,
+  };
+}
+
+export async function encryptPartnerCarePing(
+  ping: PartnerCarePing,
+  code: string,
+  pin?: string,
+): Promise<PartnerE2eeEnvelope> {
+  return encryptPartnerCareThread({ pings: [ping], updatedAt: ping.sentAt }, code, pin);
 }
 
 export async function decryptPartnerCarePing(
@@ -551,31 +662,89 @@ export async function decryptPartnerCarePing(
   code: string,
   pin?: string,
 ): Promise<PartnerCarePing> {
-  const salt = fromBase64(envelope.saltBase64);
-  const iv = fromBase64(envelope.ivBase64);
-  const ciphertext = fromBase64(envelope.ciphertextBase64);
-  const key = await derivePartnerKey(code, pin, salt);
-  const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
-  return JSON.parse(new TextDecoder().decode(plaintext)) as PartnerCarePing;
+  const thread = await decryptPartnerCareThread(envelope, code, pin);
+  return thread.pings[0];
+}
+
+async function fetchCareThreadInternal(
+  baseUrl: string,
+  code: string,
+  pin: string | undefined,
+  headers: Record<string, string>,
+): Promise<PartnerCareThread> {
+  const res = await fetch(`${baseUrl}/care/${encodeURIComponent(code.toUpperCase())}`, {
+    method: 'GET',
+    headers,
+  });
+  if (!res.ok) return { pings: [], updatedAt: new Date().toISOString() };
+  const body = (await res.json().catch(() => ({}))) as { thread?: unknown; ping?: unknown };
+  const raw = body.thread ?? body.ping;
+  if (!raw || !isPartnerE2eeEnvelope(raw)) {
+    return { pings: [], updatedAt: new Date().toISOString() };
+  }
+  try {
+    return await decryptPartnerCareThread(raw, code, pin);
+  } catch {
+    return { pings: [], updatedAt: new Date().toISOString() };
+  }
+}
+
+export async function fetchCareThreadForPrimary(
+  config: PartnerShareConfig,
+): Promise<PartnerCareThread> {
+  const baseUrl = config.syncServerUrl.trim().replace(/\/+$/, '');
+  if (!baseUrl || !config.enabled) return { pings: [], updatedAt: new Date().toISOString() };
+  try {
+    return await fetchCareThreadInternal(baseUrl, config.code, config.pin, {
+      'X-LunaCycle-Write-Secret': config.writeSecret,
+    });
+  } catch {
+    return { pings: [], updatedAt: new Date().toISOString() };
+  }
+}
+
+export async function fetchCareThreadForPartner(
+  watch: PartnerWatchConfig,
+): Promise<PartnerCareThread> {
+  const baseUrl = watch.syncServerUrl.trim().replace(/\/+$/, '');
+  if (!baseUrl) return { pings: [], updatedAt: new Date().toISOString() };
+  try {
+    return await fetchCareThreadInternal(
+      baseUrl,
+      watch.code,
+      watch.pin,
+      watch.pinHash ? { 'X-LunaCycle-Pin': watch.pinHash } : {},
+    );
+  } catch {
+    return { pings: [], updatedAt: new Date().toISOString() };
+  }
 }
 
 export async function pushPartnerCarePing(
   watch: PartnerWatchConfig,
   message: string,
   senderLabel = 'Your Partner',
-): Promise<{ ok: boolean; error?: string }> {
+  kind: 'note' | 'hug' = 'note',
+): Promise<{ ok: boolean; thread?: PartnerCareThread; error?: string }> {
   const baseUrl = watch.syncServerUrl.trim().replace(/\/+$/, '');
   const trimmed = message.trim();
   if (!baseUrl || !trimmed) return { ok: false, error: 'Enter a short message first.' };
 
   try {
+    const existing = await fetchCareThreadForPartner(watch);
     const ping: PartnerCarePing = {
       id: `care-${Date.now()}`,
+      direction: 'to_primary',
+      kind,
       message: trimmed.slice(0, 180),
       senderLabel: senderLabel.trim() || 'Your Partner',
       sentAt: new Date().toISOString(),
     };
-    const envelope = await encryptPartnerCarePing(ping, watch.code, watch.pin);
+    const nextThread: PartnerCareThread = {
+      pings: [ping, ...existing.pings].slice(0, 5),
+      updatedAt: ping.sentAt,
+    };
+    const envelope = await encryptPartnerCareThread(nextThread, watch.code, watch.pin);
     const res = await fetch(`${baseUrl}/care/${encodeURIComponent(watch.code.toUpperCase())}`, {
       method: 'PUT',
       headers: {
@@ -588,28 +757,58 @@ export async function pushPartnerCarePing(
       const err = (await res.json().catch(() => ({}))) as { error?: string };
       return { ok: false, error: err.error || `HTTP ${res.status}` };
     }
-    return { ok: true };
+    return { ok: true, thread: nextThread };
   } catch {
     return { ok: false, error: 'Offline or unable to reach relay.' };
   }
 }
 
-export async function fetchPartnerCarePing(
+export async function sendPrimaryCareRequestOrReaction(
   config: PartnerShareConfig,
-): Promise<PartnerCarePing | null> {
+  action:
+    | { type: 'react'; pingId: string; reaction: string }
+    | { type: 'request'; message: string },
+): Promise<{ ok: boolean; thread?: PartnerCareThread; error?: string }> {
   const baseUrl = config.syncServerUrl.trim().replace(/\/+$/, '');
-  if (!baseUrl || !config.enabled) return null;
+  if (!baseUrl || !config.enabled) return { ok: false, error: 'Enable Partner Sharing first.' };
   try {
+    const existing = await fetchCareThreadForPrimary(config);
+    const nowIso = new Date().toISOString();
+    let nextPings = [...existing.pings];
+
+    if (action.type === 'react') {
+      nextPings = nextPings.map((p) =>
+        p.id === action.pingId ? { ...p, reaction: action.reaction, seenAt: nowIso } : p,
+      );
+    } else {
+      const reqPing: PartnerCarePing = {
+        id: `req-${Date.now()}`,
+        direction: 'to_partner',
+        kind: 'request',
+        message: action.message.trim().slice(0, 180),
+        senderLabel: config.profileLabel.trim() || 'Your Partner',
+        sentAt: nowIso,
+      };
+      nextPings = [reqPing, ...nextPings].slice(0, 5);
+    }
+
+    const nextThread: PartnerCareThread = { pings: nextPings, updatedAt: nowIso };
+    const envelope = await encryptPartnerCareThread(nextThread, config.code, config.pin);
     const res = await fetch(`${baseUrl}/care/${encodeURIComponent(config.code.toUpperCase())}`, {
-      method: 'GET',
-      headers: { 'X-LunaCycle-Write-Secret': config.writeSecret },
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-LunaCycle-Write-Secret': config.writeSecret,
+      },
+      body: JSON.stringify(envelope),
     });
-    if (!res.ok) return null;
-    const body = (await res.json().catch(() => ({}))) as { ping?: unknown };
-    if (!body.ping || !isPartnerE2eeEnvelope(body.ping)) return null;
-    return await decryptPartnerCarePing(body.ping, config.code, config.pin);
+    if (!res.ok) {
+      const err = (await res.json().catch(() => ({}))) as { error?: string };
+      return { ok: false, error: err.error || `HTTP ${res.status}` };
+    }
+    return { ok: true, thread: nextThread };
   } catch {
-    return null;
+    return { ok: false, error: 'Offline or unable to reach relay.' };
   }
 }
 
