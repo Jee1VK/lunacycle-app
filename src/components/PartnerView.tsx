@@ -21,6 +21,14 @@ import {
   SYMPTOM_LABEL_MAP,
 } from '../engine/catalog';
 import {
+  requestNativeNotificationPermission,
+  sendTestPartnerCareNotification,
+} from '../engine/nativeNotifications';
+import {
+  buildImmediatePartnerCareAlert,
+  buildScheduledPartnerCareAlerts,
+} from '../engine/partnerNotifications';
+import {
   buildPartnerSnapshot,
   buildPartnerTextSummary,
   DEFAULT_PARTNER_SYNC_URL,
@@ -501,27 +509,95 @@ export function PartnerView({
               </div>
             ) : null}
 
-            {/* Partner Gentle Alerts Toggle (mirrors MedClock's Ring Alarms toggle) */}
-            <label className="setting-row" htmlFor="partner-alerts-switch" style={{ paddingTop: 4 }}>
-              <div className="setting-label-wrap">
-                <span className="setting-title" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                  <BellRing size={15} color="var(--color-brand-primary)" />
-                  Gentle Alerts on This Phone
-                </span>
-                <span className="setting-desc">
-                  Notify me when {watchedSnapshot.profileLabel}&apos;s period starts or is 2 days away
-                </span>
-              </div>
-              <input
-                id="partner-alerts-switch"
-                type="checkbox"
-                checked={watchConfig.alertsOnThisPhone}
-                onChange={(e) =>
-                  onUpdateWatchConfig({ ...watchConfig, alertsOnThisPhone: e.target.checked })
-                }
-                {...({ switch: '' } as Record<string, string>)}
-              />
-            </label>
+            {/* Partner Care Notifications (OS-level + Live Symptom Cues) */}
+            <div className="card-subtle" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <label className="setting-row" htmlFor="partner-alerts-switch" style={{ padding: 0, borderBottom: 'none' }}>
+                <div className="setting-label-wrap">
+                  <span className="setting-title" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <BellRing size={15} color="var(--color-brand-primary)" />
+                    Partner Care Notifications
+                  </span>
+                  <span className="setting-desc">
+                    Reminds you what to check on {watchedSnapshot.profileLabel} (PMS, period, symptoms &amp; evening check-in)
+                  </span>
+                </div>
+                <input
+                  id="partner-alerts-switch"
+                  type="checkbox"
+                  checked={watchConfig.alertsOnThisPhone}
+                  onChange={async (e) => {
+                    const enabled = e.target.checked;
+                    if (enabled) {
+                      await requestNativeNotificationPermission();
+                    }
+                    onUpdateWatchConfig({
+                      ...watchConfig,
+                      alertsOnThisPhone: enabled,
+                      dailyCheckinTime: watchConfig.dailyCheckinTime || '18:30',
+                    });
+                  }}
+                  {...({ switch: '' } as Record<string, string>)}
+                />
+              </label>
+
+              {watchConfig.alertsOnThisPhone ? (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                    <label htmlFor="partner-checkin-time" className="section-caption" style={{ fontWeight: 600 }}>
+                      Daily Evening Check-In Time
+                    </label>
+                    <input
+                      id="partner-checkin-time"
+                      type="time"
+                      className="input-control tabular"
+                      style={{ width: 126, minHeight: 38 }}
+                      value={watchConfig.dailyCheckinTime || '18:30'}
+                      onChange={(e) =>
+                        onUpdateWatchConfig({
+                          ...watchConfig,
+                          dailyCheckinTime: e.target.value || '18:30',
+                        })
+                      }
+                    />
+                  </div>
+
+                  {buildScheduledPartnerCareAlerts(watchedSnapshot).length > 0 ? (
+                    <div style={{ fontSize: '0.78rem', color: 'var(--color-text-secondary)' }}>
+                      <strong>Upcoming care reminders:</strong>{' '}
+                      {buildScheduledPartnerCareAlerts(watchedSnapshot)
+                        .map((a) => `${a.title}${a.scheduleDate ? ` (${formatShortDate(a.scheduleDate)})` : ''}`)
+                        .join(' · ')}
+                    </div>
+                  ) : null}
+
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    style={{ minHeight: 40, fontSize: '0.82rem' }}
+                    onClick={async () => {
+                      const sample = buildImmediatePartnerCareAlert(watchedSnapshot) ?? {
+                        title: `Check in on ${watchedSnapshot.profileLabel}`,
+                        body: 'Ask how her energy feels today and offer a warm drink or quiet evening together.',
+                      };
+                      const ok = await sendTestPartnerCareNotification(
+                        sample.title,
+                        sample.body,
+                        data.settings.disguiseMode,
+                        data.settings.reminders.customNotificationText,
+                      );
+                      onNotify(
+                        ok
+                          ? 'Test Partner Care notification sent!'
+                          : 'Enable notifications in phone/browser settings to receive alerts.',
+                      );
+                    }}
+                  >
+                    <BellRing size={15} />
+                    Send Test Care Notification
+                  </button>
+                </>
+              ) : null}
+            </div>
           </div>
         )}
 

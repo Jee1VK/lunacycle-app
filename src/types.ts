@@ -223,6 +223,7 @@ export interface PartnerWatchConfig {
   pinHash?: string;
   syncServerUrl: string;
   alertsOnThisPhone: boolean;
+  dailyCheckinTime?: string; // HH:mm evening partner check-in reminder
   lastFetchedAt?: string;
 }
 

@@ -57,8 +57,10 @@ import { getUiStrings } from './engine/i18n';
 import { importExternalHistory } from './engine/importers';
 import {
   scheduleNativeHygieneNotification,
+  syncNativePartnerNotifications,
   syncNativeScheduledNotifications,
 } from './engine/nativeNotifications';
+import { buildImmediatePartnerCareAlert } from './engine/partnerNotifications';
 import {
   applyOtaUpdateNow,
   checkForOtaUpdate,
@@ -358,26 +360,22 @@ export function App() {
       setWatchedPartnerSnapshot(res.snapshot);
       void saveCachedPartnerSnapshotToVault(res.snapshot);
 
-      // Gentle partner notification on this phone if enabled
-      if (partnerWatchConfig.alertsOnThisPhone && res.snapshot.mode !== 'pregnancy') {
-        const snap = res.snapshot;
-        if (snap.isPeriodActiveToday) {
-          const key = `luna_partner_alert_${today}_active`;
+      // Schedule native Android OS partner care reminders & fire immediate symptom/phase care cue
+      if (partnerWatchConfig.alertsOnThisPhone) {
+        void syncNativePartnerNotifications(
+          res.snapshot,
+          partnerWatchConfig,
+          data.settings.disguiseMode,
+          data.settings.reminders.customNotificationText,
+        );
+        const immediate = buildImmediatePartnerCareAlert(res.snapshot);
+        if (immediate) {
+          const key = `luna_partner_care_${today}_${immediate.id}`;
           if (!sessionStorage.getItem(key)) {
             sessionStorage.setItem(key, '1');
             dispatchGentleBrowserNotification(
-              `${snap.profileLabel}'s period is active`,
-              'Check the Partner tab for comfort cues and support tips.',
-              data.settings.disguiseMode,
-            );
-          }
-        } else if (snap.daysUntilNextPeriod !== null && snap.daysUntilNextPeriod <= 2) {
-          const key = `luna_partner_alert_${today}_soon`;
-          if (!sessionStorage.getItem(key)) {
-            sessionStorage.setItem(key, '1');
-            dispatchGentleBrowserNotification(
-              `${snap.profileLabel}'s period expected in ${snap.daysUntilNextPeriod}d`,
-              'Great time to plan ahead and be extra supportive.',
+              immediate.title,
+              immediate.body,
               data.settings.disguiseMode,
             );
           }
