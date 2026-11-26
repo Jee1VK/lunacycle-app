@@ -301,15 +301,23 @@ export async function saveLunaData(data: LunaData, activePin?: string): Promise<
 
 export async function eraseAllVaultData(): Promise<void> {
   await idbClearAll();
-  if (typeof localStorage !== 'undefined') {
-    for (const key of Object.keys(localStorage)) {
-      if (key.startsWith('luna_')) localStorage.removeItem(key);
+  try {
+    if (typeof localStorage !== 'undefined') {
+      for (const key of Object.keys(localStorage)) {
+        if (key.startsWith('luna_')) localStorage.removeItem(key);
+      }
     }
+  } catch {
+    // Ignore storage access errors in strict privacy WebViews
   }
-  if (typeof sessionStorage !== 'undefined') {
-    for (const key of Object.keys(sessionStorage)) {
-      if (key.startsWith('luna_')) sessionStorage.removeItem(key);
+  try {
+    if (typeof sessionStorage !== 'undefined') {
+      for (const key of Object.keys(sessionStorage)) {
+        if (key.startsWith('luna_')) sessionStorage.removeItem(key);
+      }
     }
+  } catch {
+    // Ignore storage access errors in strict privacy WebViews
   }
 }
 

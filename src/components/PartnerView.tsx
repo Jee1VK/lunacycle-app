@@ -265,7 +265,15 @@ export function PartnerView({
   };
 
   const handleSyncNow = async (overrideCfg?: PartnerShareConfig) => {
+    if (data.settings.simpleMode) {
+      setShareStatus('Cloud Partner Sync is disabled in Simple / Teen Mode.');
+      return;
+    }
     const cfg = overrideCfg ?? shareConfig;
+    if (!adultSyncConsent && !cfg.enabled) {
+      setShareStatus('Please confirm you are 18+ and consent to encrypted Partner Sync first.');
+      return;
+    }
     if (!cfg.syncServerUrl.trim()) {
       setShareStatus('Add a Sync Relay URL below to push live updates.');
       return;
@@ -1623,7 +1631,11 @@ export function PartnerView({
             <button
               type="button"
               className="btn-secondary"
-              disabled={syncingShare}
+              disabled={
+                syncingShare ||
+                data.settings.simpleMode ||
+                (!shareConfig.enabled && !adultSyncConsent)
+              }
               onClick={() => void handleSyncNow()}
             >
               <RefreshCw size={16} />

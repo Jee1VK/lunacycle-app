@@ -346,7 +346,13 @@ export function App() {
 
   // Live Auto-Sync: push updated privacy-scoped snapshot whenever logs/settings/permissions change
   useEffect(() => {
-    if (!ready || locked || !partnerShareConfig.enabled || !partnerShareConfig.syncServerUrl.trim()) {
+    if (
+      !ready ||
+      locked ||
+      data.settings.simpleMode ||
+      !partnerShareConfig.enabled ||
+      !partnerShareConfig.syncServerUrl.trim()
+    ) {
       return;
     }
     if (autoSyncTimerRef.current) {
@@ -399,6 +405,10 @@ export function App() {
 
   // Poll for encrypted two-way Partner Care Thread (Primary User receiving pings & hugs)
   useEffect(() => {
+    if (data.settings.simpleMode) {
+      setIncomingCarePing(null);
+      return;
+    }
     if (!ready || locked || !partnerShareConfig.enabled || !partnerShareConfig.syncServerUrl.trim()) {
       return;
     }
@@ -447,6 +457,7 @@ export function App() {
     partnerShareConfig.pin,
     partnerShareConfig.writeSecret,
     partnerShareConfig.syncServerUrl,
+    data.settings.simpleMode,
     data.settings.disguiseMode,
   ]);
 
@@ -662,6 +673,10 @@ export function App() {
         : data.settings.reminders,
     };
     void persistData({ ...data, settings: nextSettings });
+    if (patch.simpleMode === true && partnerShareConfig.enabled) {
+      handleUpdatePartnerShareConfig({ ...partnerShareConfig, enabled: false });
+      setIncomingCarePing(null);
+    }
     if (
       pinConfig?.enabled &&
       (patch.disguiseMode !== undefined ||
@@ -916,6 +931,7 @@ export function App() {
   };
 
   const handleReactToCarePing = async (pingId: string, reaction: string) => {
+    if (data.settings.simpleMode) return;
     const res = await sendPrimaryCareRequestOrReaction(partnerShareConfig, {
       type: 'react',
       pingId,
@@ -930,6 +946,7 @@ export function App() {
   };
 
   const handleSendPrimaryCareRequest = async (message: string) => {
+    if (data.settings.simpleMode) return;
     const res = await sendPrimaryCareRequestOrReaction(partnerShareConfig, {
       type: 'request',
       message,
@@ -1057,7 +1074,7 @@ export function App() {
 
   const handleEraseAllData = async () => {
     await clearBiometricCredentials();
-    if (partnerShareConfig.enabled) {
+    if (partnerShareConfig.enabled || partnerShareConfig.lastSyncedAt) {
       await deletePartnerSnapshot(partnerShareConfig);
     }
     await eraseAllVaultData();
@@ -1067,6 +1084,8 @@ export function App() {
     setPartnerShareConfig(createDefaultPartnerShareConfig());
     setPartnerWatchConfig(null);
     setWatchedPartnerSnapshot(null);
+    setIncomingCarePing(null);
+    setCareThread({ pings: [], updatedAt: '' });
     setLocked(false);
     showToast('All local & relay data permanently erased.');
   };
@@ -1116,7 +1135,7 @@ export function App() {
             <p className="brand-subtitle">
               {disguised
                 ? 'Private offline journal'
-                : partnerShareConfig.enabled
+                : partnerShareConfig.enabled && !data.settings.simpleMode
                   ? 'On-device · Partner sync live'
                   : 'Private · Offline · Zero trackers'}
             </p>
@@ -1182,8 +1201,8 @@ export function App() {
             stats={stats}
             summary={summary}
             reminders={activeReminders}
-            incomingCarePing={incomingCarePing}
-            partnerSharingEnabled={partnerShareConfig.enabled}
+            incomingCarePing={data.settings.simpleMode ? null : incomingCarePing}
+            partnerSharingEnabled={partnerShareConfig.enabled && !data.settings.simpleMode}
             onDismissCarePing={handleDismissCarePing}
             onReactToCarePing={(pingId, rx) => void handleReactToCarePing(pingId, rx)}
             onSendPrimaryCareRequest={(msg) => void handleSendPrimaryCareRequest(msg)}

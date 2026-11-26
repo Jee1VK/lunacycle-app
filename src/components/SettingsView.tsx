@@ -1662,12 +1662,20 @@ export function SettingsView({
           </div>
           <div className="card-subtle">
             <strong style={{ color: 'var(--color-text-primary)' }}>5. Summary in Supported Indian Languages</strong>
-            <p style={{ margin: '4px 0 0', lineHeight: 1.55 }}>
-              <strong>ಕನ್ನಡ:</strong> ನಿಮ್ಮ ಎಲ್ಲಾ ಡೇಟಾ ನಿಮ್ಮ ಫೋನ್‌ನಲ್ಲಿ ಮಾತ್ರ ಸುರಕ್ಷಿತವಾಗಿರುತ್ತದೆ. ಪಾಲುದಾರರ ಹಂಚಿಕೆ ಐಚ್ಛಿಕ ಮತ್ತು ಎಂಡ್-ಟು-ಎಂಡ್ ಎನ್‌ಕ್ರಿಪ್ಟ್ ಆಗಿದೆ.<br />
-              <strong>हिन्दी:</strong> आपका सारा डेटा केवल आपके फ़ोन में सुरक्षित रहता है। पार्टनर शेयरिंग वैकल्पिक और एंड-टू-एंड एन्क्रिप्टेड है।<br />
-              <strong>தமிழ்:</strong> உங்கள் தரவு அனைத்தும் உங்கள் சாதனத்தில் மட்டுமே சேமிக்கப்படும். பார்ட்னர் பகிர்வு விருப்பத்திற்குரியது மற்றும் என்க்ரிப்ட் செய்யப்பட்டது.<br />
-              <strong>తెలుగు:</strong> మీ డేటా అంతా మీ ఫోన్‌లోనే సురక్షితంగా ఉంటుంది. పార్ట్‌నర్ షేరింగ్ ఐచ్ఛికం మరియు ఎండ్-టు-ఎండ్ ఎన్‌క్రిప్ట్ చేయబడింది.
-            </p>
+            <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 4, lineHeight: 1.5 }}>
+              <p lang="kn" style={{ margin: 0 }}>
+                <strong>ಕನ್ನಡ:</strong> ನಿಮ್ಮ ಎಲ್ಲಾ ಡೇಟಾ ನಿಮ್ಮ ಫೋನ್‌ನಲ್ಲಿ ಮಾತ್ರ ಸುರಕ್ಷಿತವಾಗಿರುತ್ತದೆ. ಪಾಲುದಾರರ ಹಂಚಿಕೆ ಐಚ್ಛಿಕ ಮತ್ತು ಎಂಡ್-ಟು-ಎಂಡ್ ಎನ್‌ಕ್ರಿಪ್ಟ್ ಆಗಿದೆ.
+              </p>
+              <p lang="hi" style={{ margin: 0 }}>
+                <strong>हिन्दी:</strong> आपका सारा डेटा केवल आपके फ़ोन में सुरक्षित रहता है। पार्टनर शेयरिंग वैकल्पिक और एंड-टू-एंड एन्क्रिप्टेड है।
+              </p>
+              <p lang="ta" style={{ margin: 0 }}>
+                <strong>தமிழ்:</strong> உங்கள் தரவு அனைத்தும் உங்கள் சாதனத்தில் மட்டுமே சேமிக்கப்படும். பார்ட்னர் பகிர்வு விருப்பத்திற்குரியது மற்றும் என்க்ரிப்ட் செய்யப்பட்டது.
+              </p>
+              <p lang="te" style={{ margin: 0 }}>
+                <strong>తెలుగు:</strong> మీ డేటా అంతా మీ ఫోన్‌లోనే సురక్షితంగా ఉంటుంది. పార్ట్‌నర్ షేరింగ్ ఐచ్ఛికం మరియు ఎండ్-టు-ఎండ్ ఎన్‌క్రిప్ట్ చేయబడింది.
+              </p>
+            </div>
           </div>
           <p className="field-hint">
             Resident Grievance Officer contact details (24h acknowledgement / 15-day resolution SLA) will be published here prior to public app-store distribution.
