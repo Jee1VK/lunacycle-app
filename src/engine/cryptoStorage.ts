@@ -301,6 +301,16 @@ export async function saveLunaData(data: LunaData, activePin?: string): Promise<
 
 export async function eraseAllVaultData(): Promise<void> {
   await idbClearAll();
+  if (typeof localStorage !== 'undefined') {
+    for (const key of Object.keys(localStorage)) {
+      if (key.startsWith('luna_')) localStorage.removeItem(key);
+    }
+  }
+  if (typeof sessionStorage !== 'undefined') {
+    for (const key of Object.keys(sessionStorage)) {
+      if (key.startsWith('luna_')) sessionStorage.removeItem(key);
+    }
+  }
 }
 
 export async function loadPartnerShareConfigFromVault(): Promise<PartnerShareConfig | null> {

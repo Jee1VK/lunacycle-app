@@ -754,7 +754,7 @@ export function computeClinicalHealthFlags(
       id: 'long-cycles',
       severity: 'attention',
       title: 'Recurring long cycles (> 35 days)',
-      detail: `${longCycles} logged cycles exceeded 35 days — a pattern clinicians often check for hormonal or PCOS factors.`,
+      detail: `${longCycles} logged cycles exceeded 35 days. Consider sharing your cycle summary with a healthcare professional.`,
     });
   }
 
@@ -799,7 +799,7 @@ export function computeClinicalHealthFlags(
       id: 'heavy-flow',
       severity: 'attention',
       title: 'Heavy flow pattern noted',
-      detail: `${heavyPeriodCount} ${heavyPeriodCount === 1 ? 'cycle showed' : 'cycles showed'} heavy bleeding (> 80 mL estimated or 3+ heavy days). Mention this to your doctor to check iron/ferritin levels.`,
+      detail: `${heavyPeriodCount} ${heavyPeriodCount === 1 ? 'cycle showed' : 'cycles showed'} heavy bleeding (> 80 mL estimated or 3+ heavy days). Consider sharing this observation with a healthcare professional.`,
     });
   }
 

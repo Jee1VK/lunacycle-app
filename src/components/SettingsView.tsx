@@ -113,6 +113,7 @@ export function SettingsView({
   const [importPassphrase, setImportPassphrase] = useState('');
 
   const [eraseDialogOpen, setEraseDialogOpen] = useState(false);
+  const [privacyDialogOpen, setPrivacyDialogOpen] = useState(false);
 
   const [notifStatus, setNotifStatus] = useState(() => getNotificationSupport());
 
@@ -1070,9 +1071,20 @@ export function SettingsView({
             Privacy &amp; Security Vault
           </h2>
         </div>
-        <p className="section-caption" style={{ marginBottom: 14 }}>
-          100% local IndexedDB storage. Zero accounts, zero analytics, zero third-party requests.
+        <p className="section-caption" style={{ marginBottom: 10 }}>
+          Local-first IndexedDB storage with zero accounts, ads, or analytics. Network requests are only used for GitHub Pages OTA update checks and (if you opt in) end-to-end encrypted Partner Sync via Cloudflare Workers.
         </p>
+        <div style={{ marginBottom: 14 }}>
+          <button
+            type="button"
+            className="btn-secondary"
+            style={{ minHeight: 44, fontSize: '0.84rem' }}
+            onClick={() => setPrivacyDialogOpen(true)}
+          >
+            <FileText size={15} />
+            Privacy Notice &amp; Legal (DPDP Act)
+          </button>
+        </div>
 
         <div className="setting-row">
           <div className="setting-label-wrap">
@@ -1609,6 +1621,58 @@ export function SettingsView({
         <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--color-text-secondary)' }}>
           Because LunaCycle stores everything strictly on your device, erased data cannot be recovered unless you exported a JSON backup first.
         </p>
+      </ModalDialog>
+
+      {/* DPDP Act 2023 & Wellness Legal Privacy Notice Modal */}
+      <ModalDialog
+        open={privacyDialogOpen}
+        title="Privacy Notice & Legal (DPDP Act)"
+        subtitle="India DPDP Act 2023 · Non-Diagnostic General Wellness"
+        onClose={() => setPrivacyDialogOpen(false)}
+        footer={
+          <button type="button" className="btn-primary" onClick={() => setPrivacyDialogOpen(false)}>
+            Close
+          </button>
+        }
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: '0.84rem', color: 'var(--color-text-secondary)' }}>
+          <div className="card-subtle">
+            <strong style={{ color: 'var(--color-text-primary)' }}>1. Local-First Data &amp; Network Disclosure</strong>
+            <p style={{ margin: '4px 0 0' }}>
+              All cycle, symptom, mood, and pill logs stay strictly on your device in IndexedDB (optionally AES-256-GCM encrypted with your 4-digit PIN). LunaCycle has zero accounts, zero ads, and zero analytics. Outbound requests occur only for: (a) GitHub Pages OTA update checks (<code>version.json</code>), and (b) optional end-to-end encrypted Partner Sync via Cloudflare Workers KV (auto-deleted after 30 days for snapshots and 7 days for Care Pings).
+            </p>
+          </div>
+          <div className="card-subtle">
+            <strong style={{ color: 'var(--color-text-primary)' }}>2. Your Rights Under DPDP Act 2023</strong>
+            <p style={{ margin: '4px 0 0' }}>
+              You may withdraw Partner Sync consent at any time via <strong>Stop Sharing &amp; Wipe Relay Copy</strong>, export your data (JSON/CSV/PDF), or permanently erase all local and remote data via <strong>Erase All Data</strong>. You also have the right to escalate unresolved privacy grievances to the <strong>Data Protection Board of India (DPBI)</strong>.
+            </p>
+          </div>
+          <div className="card-subtle">
+            <strong style={{ color: 'var(--color-text-primary)' }}>3. Age Eligibility (Under-18 Protection)</strong>
+            <p style={{ margin: '4px 0 0' }}>
+              Cloud Partner Sync is restricted to users aged 18+ with explicit consent and is automatically disabled in Simple / Teen Mode.
+            </p>
+          </div>
+          <div className="card-subtle">
+            <strong style={{ color: 'var(--color-text-primary)' }}>4. General Wellness Notice (Non-SaMD)</strong>
+            <p style={{ margin: '4px 0 0' }}>
+              LunaCycle is a personal self-tracking and wellness companion. It is not a medical device, does not diagnose or treat any condition, is not a contraceptive method, and contains zero fetal sex/gender prediction features (PCPNDT Act compliant).
+            </p>
+          </div>
+          <div className="card-subtle">
+            <strong style={{ color: 'var(--color-text-primary)' }}>5. Summary in Supported Indian Languages</strong>
+            <p style={{ margin: '4px 0 0', lineHeight: 1.55 }}>
+              <strong>ಕನ್ನಡ:</strong> ನಿಮ್ಮ ಎಲ್ಲಾ ಡೇಟಾ ನಿಮ್ಮ ಫೋನ್‌ನಲ್ಲಿ ಮಾತ್ರ ಸುರಕ್ಷಿತವಾಗಿರುತ್ತದೆ. ಪಾಲುದಾರರ ಹಂಚಿಕೆ ಐಚ್ಛಿಕ ಮತ್ತು ಎಂಡ್-ಟು-ಎಂಡ್ ಎನ್‌ಕ್ರಿಪ್ಟ್ ಆಗಿದೆ.<br />
+              <strong>हिन्दी:</strong> आपका सारा डेटा केवल आपके फ़ोन में सुरक्षित रहता है। पार्टनर शेयरिंग वैकल्पिक और एंड-टू-एंड एन्क्रिप्टेड है।<br />
+              <strong>தமிழ்:</strong> உங்கள் தரவு அனைத்தும் உங்கள் சாதனத்தில் மட்டுமே சேமிக்கப்படும். பார்ட்னர் பகிர்வு விருப்பத்திற்குரியது மற்றும் என்க்ரிப்ட் செய்யப்பட்டது.<br />
+              <strong>తెలుగు:</strong> మీ డేటా అంతా మీ ఫోన్‌లోనే సురక్షితంగా ఉంటుంది. పార్ట్‌నర్ షేరింగ్ ఐచ్ఛికం మరియు ఎండ్-టు-ఎండ్ ఎన్‌క్రిప్ట్ చేయబడింది.
+            </p>
+          </div>
+          <p className="field-hint">
+            Resident Grievance Officer contact details (24h acknowledgement / 15-day resolution SLA) will be published here prior to public app-store distribution.
+          </p>
+        </div>
       </ModalDialog>
     </>
   );

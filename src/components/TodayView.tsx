@@ -848,7 +848,7 @@ export function TodayView({
 
       <ModalDialog
         open={showMissedPillGuide}
-        title="Missed or Late Pill Guide"
+        title="Missed or Late Pill Log"
         onClose={() => setShowMissedPillGuide(false)}
         footer={
           <button
@@ -862,21 +862,15 @@ export function TodayView({
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, fontSize: '0.88rem' }}>
           <div className="card-subtle">
-            <strong style={{ display: 'block', marginBottom: 4 }}>1 Pill Missed (or Late &lt; 24 hrs)</strong>
+            <strong style={{ display: 'block', marginBottom: 4 }}>Follow Your Prescription Leaflet</strong>
             <p style={{ margin: 0, color: 'var(--color-text-secondary)' }}>
-              Take the missed pill as soon as you remember — even if that means taking 2 pills in one day — then continue the rest of the pack at your normal time.
+              Missed-dose instructions vary by medication type and brand. Always check the official package insert that came with your pack or contact your doctor or pharmacist promptly for guidance.
             </p>
           </div>
           <div className="card-subtle">
-            <strong style={{ display: 'block', marginBottom: 4 }}>2+ Active Pills Missed (Combined Pill)</strong>
+            <strong style={{ display: 'block', marginBottom: 4 }}>Keep Your Personal Log Accurate</strong>
             <p style={{ margin: 0, color: 'var(--color-text-secondary)' }}>
-              Take the most recent missed pill right away, discard earlier missed pills, and use backup contraception for the next 7 days. Check your pill leaflet or pharmacist if unsure.
-            </p>
-          </div>
-          <div className="card-subtle">
-            <strong style={{ display: 'block', marginBottom: 4 }}>Progestin-Only Mini-Pill</strong>
-            <p style={{ margin: 0, color: 'var(--color-text-secondary)' }}>
-              Timing windows are stricter (often 3 hours; 12 hours for desogestrel). If past your pill&apos;s window, take it immediately and use backup protection for 48 hours.
+              If you took a pill later than your scheduled alarm time, you can record it as taken late below so your personal history stays accurate for clinician visits.
             </p>
           </div>
           <div className="btn-row">
@@ -902,7 +896,7 @@ export function TodayView({
             </button>
           </div>
           <p className="field-hint">
-            General educational guidance only — always follow the package insert for your specific prescription.
+            For personal self-tracking only — LunaCycle does not provide medical advice, dosing instructions, or contraceptive guidance.
           </p>
         </div>
       </ModalDialog>

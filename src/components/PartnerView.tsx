@@ -138,6 +138,13 @@ export function PartnerView({
   const [pinInput, setPinInput] = useState('');
   const [showSharePin, setShowSharePin] = useState(false);
   const [showQrModal, setShowQrModal] = useState(false);
+  const [adultSyncConsent, setAdultSyncConsent] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('luna_partner_18plus_consent') === '1';
+    } catch {
+      return false;
+    }
+  });
   const [forecastDaysCount, setForecastDaysCount] = useState<14 | 30>(14);
   const [copied, setCopied] = useState(false);
   const [shareStatus, setShareStatus] = useState<string | null>(null);
@@ -1251,9 +1258,14 @@ export function PartnerView({
           <input
             aria-label="Enable live partner sharing"
             type="checkbox"
-            checked={shareConfig.enabled}
+            disabled={data.settings.simpleMode}
+            checked={shareConfig.enabled && !data.settings.simpleMode}
             onChange={(e) => {
               const nextEnabled = e.target.checked;
+              if (nextEnabled && !adultSyncConsent) {
+                setShareStatus('Please confirm you are 18+ and consent to encrypted Partner Sync below.');
+                return;
+              }
               const nextCfg = { ...shareConfig, enabled: nextEnabled };
               onUpdateShareConfig(nextCfg);
               if (nextEnabled) {
@@ -1265,6 +1277,37 @@ export function PartnerView({
             {...({ switch: '' } as Record<string, string>)}
           />
         </div>
+
+        {data.settings.simpleMode ? (
+          <div className="reminder-item reminder-item--gentle" style={{ marginBottom: 12 }}>
+            <p className="reminder-body" style={{ margin: 0 }}>
+              Cloud Partner Sync is disabled in <strong>Simple / Teen Mode</strong> (DPDP Act under-18 protection). All logs stay 100% on this device.
+            </p>
+          </div>
+        ) : !shareConfig.enabled ? (
+          <label
+            className="card-subtle"
+            style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 12, cursor: 'pointer' }}
+          >
+            <input
+              type="checkbox"
+              checked={adultSyncConsent}
+              onChange={(e) => {
+                const ok = e.target.checked;
+                setAdultSyncConsent(ok);
+                try {
+                  localStorage.setItem('luna_partner_18plus_consent', ok ? '1' : '0');
+                } catch {
+                  // Ignore
+                }
+              }}
+              style={{ width: 20, height: 20, marginTop: 2, flexShrink: 0 }}
+            />
+            <span style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)' }}>
+              I confirm I am <strong>18+</strong> and consent to end-to-end encrypted Partner Sync via Cloudflare Workers (auto-expires after 30 days; withdraw anytime).
+            </span>
+          </label>
+        ) : null}
 
         <p className="section-caption" style={{ marginBottom: 14 }}>
           Share a live read-only view with your partner using a 6-character code &amp; optional PIN. Private notes, BBT, LH tests, and intimacy logs are <strong>never</strong> shared.
