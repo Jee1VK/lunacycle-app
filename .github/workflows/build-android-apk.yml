@@ -177,32 +177,36 @@ jobs:
               f.write(text)
           EOF
 
-      - name: Build Signed Release Android APK (Gradle)
+      - name: Build Signed Release Android APK & AAB (Gradle)
         env:
           ANDROID_KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASS }}
+          ANDROID_KEYSTORE_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASS: ${{ secrets.ANDROID_KEY_PASS }}
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew assembleRelease
+          ./gradlew assembleRelease bundleRelease
           cp app/build/outputs/apk/release/app-release.apk ../LunaCycle.apk
+          cp app/build/outputs/bundle/release/app-release.aab ../LunaCycle.aab
 
-      - name: Upload LunaCycle APK Artifact
+      - name: Upload LunaCycle APK & AAB Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: LunaCycle-Android-APK
-          path: LunaCycle.apk
+          name: LunaCycle-Android-Builds
+          path: |
+            LunaCycle.apk
+            LunaCycle.aab
           retention-days: 30
 
-      - name: Auto-Publish Latest GitHub Release (LunaCycle.apk)
+      - name: Auto-Publish Latest GitHub Release (LunaCycle.apk & LunaCycle.aab)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if gh release view latest >/dev/null 2>&1; then
-            gh release upload latest LunaCycle.apk --clobber
+            gh release upload latest LunaCycle.apk LunaCycle.aab --clobber
           else
-            gh release create latest LunaCycle.apk \
-              --title "LunaCycle (Latest Android APK)" \
-              --notes "Signed Android APK for LunaCycle with built-in PWA-style Over-The-Air (OTA) live updates. Future web updates apply automatically without reinstalling."
+            gh release create latest LunaCycle.apk LunaCycle.aab \
+              --title "LunaCycle (Latest Android APK & AAB)" \
+              --notes "Signed Android APK and Play Store AAB for LunaCycle."
           fi
