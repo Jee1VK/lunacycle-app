@@ -5,16 +5,15 @@ const config: CapacitorConfig = {
   appName: 'LunaCycle',
   webDir: 'dist',
   server: {
-    // PWA-style Over-The-Air (OTA) live updates: loads the HTTPS GitHub Pages PWA
-    // backed by our offline Service Worker so every push updates the APK seamlessly
-    // without reinstalling, while continuing to work 100% offline.
-    url: 'https://jee1vk.github.io/lunacycle-app/',
+    androidScheme: 'https',
     cleartext: false,
-    errorPath: 'offline.html',
   },
   android: {
     allowMixedContent: false,
     webContentsDebuggingEnabled: false,
+  },
+  ios: {
+    contentInset: 'automatic',
   },
   plugins: {
     LocalNotifications: {

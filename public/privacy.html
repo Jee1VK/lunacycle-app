@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="theme-color" content="#6B1D2F" />
+    <title>Privacy Policy — LunaCycle</title>
+    <style>
+      :root {
+        --bg: #FAFAF7;
+        --card: #FFFFFF;
+        --border: #E7E0D6;
+        --primary: #6B1D2F;
+        --accent: #C5A059;
+        --text: #1C1917;
+        --muted: #57534E;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.65;
+        padding: 24px 16px 56px;
+      }
+      main {
+        max-width: 760px;
+        margin: 0 auto;
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 28px 24px;
+      }
+      h1 {
+        font-family: Georgia, "Times New Roman", serif;
+        color: var(--primary);
+        margin: 0 0 6px;
+        font-size: 1.75rem;
+      }
+      h2 {
+        font-family: Georgia, "Times New Roman", serif;
+        color: var(--primary);
+        margin: 26px 0 8px;
+        font-size: 1.18rem;
+        border-bottom: 1px solid var(--border);
+        padding-bottom: 6px;
+      }
+      p, li { color: var(--muted); font-size: 0.95rem; }
+      strong { color: var(--text); }
+      .badge {
+        display: inline-block;
+        background: #F5ECEE;
+        color: var(--primary);
+        border: 1px solid #DFC5CB;
+        border-radius: 999px;
+        padding: 4px 12px;
+        font-size: 0.78rem;
+        font-weight: 700;
+        margin-bottom: 12px;
+      }
+      .box {
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-left: 4px solid var(--accent);
+        border-radius: 10px;
+        padding: 14px 16px;
+        margin: 14px 0;
+      }
+      a { color: var(--primary); font-weight: 600; }
+      .back-link {
+        display: inline-flex;
+        align-items: center;
+        min-height: 44px;
+        padding: 8px 16px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        text-decoration: none;
+        margin-bottom: 16px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <a class="back-link" href="./index.html">&larr; Back to LunaCycle</a>
+      <div><span class="badge">India DPDP Act 2023 &amp; GDPR Compliant · Zero-Tracking Vault</span></div>
+      <h1>Privacy Policy</h1>
+      <p><strong>Effective Date:</strong> November 26, 2026 &middot; <strong>App:</strong> LunaCycle (<code>com.lunacycle.app</code>)</p>
+
+      <div class="box">
+        <strong>Zero-Account, Local-First Summary:</strong> LunaCycle requires no sign-up, collects zero analytics or advertising identifiers, and encrypts your entire personal health log on your own device from Day 1 using 256-bit <code>AES-GCM</code>. Your private cycle notes, Basal Body Temperature (BBT), ovulation strip results, and intimacy logs <strong>never leave your device</strong> unless you personally export a file.
+      </div>
+
+      <h2>1. Categories of Personal Data Stored On-Device</h2>
+      <p>When you voluntarily log entries inside LunaCycle, the following data is stored locally inside your device&rsquo;s private IndexedDB vault, encrypted at rest from Day 1 with a device-local 256-bit <code>AES-GCM</code> key (and double-encrypted with <code>PBKDF2-SHA256</code> when you enable a 4-digit PIN):</p>
+      <ul>
+        <li><strong>Cycle &amp; Gestational Dates:</strong> Menstrual bleeding dates, flow levels, estimated due dates / LMP dates (in Pregnancy Mode), and daily pill pack reminder checkmarks.</li>
+        <li><strong>Physical &amp; Wellness Cues:</strong> Self-logged symptoms, moods, morning BBT readings, cervical mucus observations, LH strip results, sleep hours, hydration, sanitary timer changes, and private notes.</li>
+        <li><strong>App Preferences:</strong> Theme colors, language selection (English, Kannada, Hindi, Tamil, Telugu), Disguise Mode, and local reminder times.</li>
+      </ul>
+
+      <h2>2. Zero Third-Party Trackers, Analytics, or Data Sales</h2>
+      <ul>
+        <li><strong>Zero Analytics / Telemetry SDKs:</strong> No Google Analytics, Firebase Analytics, Meta Pixel, Crashlytics, or third-party tracking scripts are embedded.</li>
+        <li><strong>Zero Advertising IDs:</strong> LunaCycle never accesses Android Advertising ID (AAID) or Apple IDFA/IDFV and displays zero advertisements.</li>
+        <li><strong>100% Local Native Bundle:</strong> Installed Android and iOS builds run entirely from signed local assets in Airplane Mode without contacting external CDNs on launch.</li>
+        <li><strong>OS Backup &amp; Screenshot Protection:</strong> Android cloud auto-backup (<code>allowBackup="false"</code>) and Recent-Apps switcher screenshots (<code>FLAG_SECURE</code> / iOS privacy blur) are restricted to protect sensitive screens.</li>
+      </ul>
+
+      <h2>3. Optional End-to-End Encrypted Partner Sync (18+ Only)</h2>
+      <p>By default, LunaCycle makes <strong>zero</strong> network calls. Network transmission occurs <strong>only</strong> if an adult user (aged 18+) explicitly enables <strong>Share My Cycle</strong> in the Partner tab:</p>
+      <ul>
+        <li><strong>End-to-End Encryption (E2EE):</strong> Before leaving your phone, a privacy-scoped summary snapshot (excluding private notes, BBT decimals, LH tests, and intimacy logs) is encrypted on-device using <code>AES-256-GCM</code> derived from a cryptographically random <strong>128-bit Pairing Key</strong> (shared only via URL <code>#hash</code> fragment or in-person QR scan, never sent to the server) plus an optional 4-digit PIN.</li>
+        <li><strong>Processor &amp; Automatic Expiry:</strong> Ciphertext envelopes are relayed through Cloudflare Workers KV (<code>lunacycle-partner-sync</code>) solely to deliver updates to your invited partner. Snapshots automatically expire after <strong>30 days</strong>, and encrypted Care Pings expire after <strong>7 days</strong>.</li>
+        <li><strong>Instant Withdrawal:</strong> Tapping <strong>Stop Sharing &amp; Wipe Relay Copy</strong> or <strong>Rotate Key</strong> immediately deletes the remote ciphertext from Cloudflare KV.</li>
+      </ul>
+
+      <h2>4. Device Permissions</h2>
+      <ul>
+        <li><strong>Local Notifications (Optional):</strong> Used strictly on-device to schedule private reminders. Notification channels default to <code>VISIBILITY_PRIVATE</code> with generic non-medical text on locked screens unless you explicitly opt in to detailed lock-screen text.</li>
+        <li><strong>Biometric Unlock (Optional — Face ID / Touch ID / Fingerprint):</strong> Used solely via OS hardware Keychain / Keystore APIs to unlock your local PIN vault; biometric templates are never accessed by or stored within LunaCycle.</li>
+      </ul>
+
+      <h2>5. Children &amp; Under-18 Protection (DPDP Act Section 9)</h2>
+      <p>LunaCycle does not knowingly collect, transmit, or process personal data of individuals under 18 years of age on any server. Cloud Partner Sync requires explicit 18+ confirmation and is completely disabled in <strong>Simple / Teen Mode</strong>, keeping all teen wellness logs 100% offline on the device. We perform zero behavioral monitoring or targeted advertising.</p>
+
+      <h2>6. Your Rights Under India DPDP Act 2023, DPDP Rules 2025 &amp; GDPR</h2>
+      <p>As a Data Principal, you have immediate, self-service control inside <strong>Settings &rarr; Backup, Export &amp; Data Rights</strong>:</p>
+      <ul>
+        <li><strong>Right to Access &amp; Data Portability:</strong> Export your complete records anytime as an <code>AES-256-GCM</code> encrypted JSON backup, CSV spreadsheet, or printable Clinician PDF.</li>
+        <li><strong>Right to Correction:</strong> Edit or clear any historical daily log directly on the Calendar or Today screen.</li>
+        <li><strong>Right to Withdraw Consent &amp; 1-Tap Erasure:</strong> Tap <strong>Erase All Data</strong> in Settings to instantaneously and irreversibly wipe your local IndexedDB vault, cancel all scheduled OS notifications, clear biometric credentials, and send an immediate <code>DELETE</code> wipe command to the Partner Sync relay.</li>
+        <li><strong>Right to Nominate (DPDP Act Section 14):</strong> Because your records reside strictly on your own device without central accounts, you may exercise nomination directly by sharing an encrypted JSON backup and passphrase with a trusted nominee of your choice.</li>
+        <li><strong>Regulatory Escalation:</strong> Under the Digital Personal Data Protection Act, 2023 (India), you have the right to lodge a complaint with the <strong>Data Protection Board of India (DPBI)</strong> (or your local EEA/UK supervisory authority under GDPR) if a privacy concern remains unresolved.</li>
+      </ul>
+
+      <h2>7. Multi-Language Privacy Summary (Indian Languages)</h2>
+      <ul>
+        <li lang="kn"><strong>ಕನ್ನಡ:</strong> ನಿಮ್ಮ ಎಲ್ಲಾ ಡೇಟಾ ನಿಮ್ಮ ಫೋನ್‌ನಲ್ಲಿ ಮಾತ್ರ AES-256-GCM ಎನ್‌ಕ್ರಿಪ್ಶನ್‌ನೊಂದಿಗೆ ಸುರಕ್ಷಿತವಾಗಿರುತ್ತದೆ. ಯಾವುದೇ ಖಾತೆ ಅಥವಾ ಜಾಹೀರಾತು ಟ್ರ್ಯಾಕರ್‌ಗಳಿಲ್ಲ. ಪಾಲುದಾರರ ಸಿಂಕ್ ಸಂಪೂರ್ಣವಾಗಿ ಐಚ್ಛಿಕ (18+) ಮತ್ತು ಎಂಡ್-ಟು-ಎಂಡ್ ಎನ್‌ಕ್ರಿಪ್ಟ್ ಆಗಿದೆ.</li>
+        <li lang="hi"><strong>हिन्दी:</strong> आपका सारा डेटा केवल आपके फ़ोन में AES-256-GCM एन्क्रिप्शन के साथ सुरक्षित रहता है। कोई अकाउंट, विज्ञापन या ट्रैकर नहीं है। पार्टनर सिंक पूरी तरह वैकल्पिक (18+) और एंड-टू-एंड एन्क्रिप्टेड है।</li>
+        <li lang="ta"><strong>தமிழ்:</strong> உங்கள் தரவு அனைத்தும் உங்கள் சாதனத்தில் மட்டுமே AES-256-GCM என்க்ரிப்ஷனுடன் சேமிக்கப்படும். கணக்குகள் அல்லது விளம்பர டிராக்கர்கள் இல்லை. பார்ட்னர் பகிர்வு விருப்பத்திற்குரியது (18+).</li>
+        <li lang="te"><strong>తెలుగు:</strong> మీ డేటా అంతా మీ ఫోన్‌లోనే AES-256-GCM ఎన్‌క్రిప్షన్‌తో సురక్షితంగా ఉంటుంది. ఎలాంటి ఖాతాలు లేదా యాడ్ ట్రాకర్లు లేవు. పార్ట్‌నర్ సింక్ పూర్తిగా ఐచ్ಛికం (18+).</li>
+      </ul>
+
+      <h2>8. Developer Privacy Support Contact</h2>
+      <p>For privacy inquiries, data protection questions, or technical support regarding LunaCycle:</p>
+      <div class="box">
+        <strong>LunaCycle Developer Support (Bengaluru, Karnataka, India)</strong><br />
+        Contact Channel: <em>[Developer Support Contact Placeholder — Official support email &amp; contact details will be published here prior to store release]</em>
+      </div>
+    </main>
+  </body>
+</html>

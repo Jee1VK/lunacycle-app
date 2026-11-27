@@ -39,18 +39,24 @@ import {
   buildScheduledPartnerCareAlerts,
 } from '../engine/partnerNotifications';
 import {
+  buildPartnerInviteUrl,
   buildPartnerSnapshot,
   buildPartnerTextSummary,
+  clearPartnerCarePing,
   DEFAULT_PARTNER_SYNC_URL,
   deletePartnerSnapshot,
   fetchPartnerSnapshot,
+  formatPartnerPairingToken,
   generatePartnerCode,
+  generateSyncKey,
+  generateWriteSecret,
   getPartnerCommunicationCues,
   getPartnerDailyBodyForecast,
   getPartnerKeyUpcomingDates,
   getPartnerSupportTips,
   getSmartCarePingSuggestions,
   hashPartnerPin,
+  parsePartnerPairingInput,
   pushPartnerCarePing,
   pushPartnerSnapshot,
 } from '../engine/partnerSync';
@@ -84,6 +90,7 @@ interface PartnerViewProps {
   onTogglePartnerOnlyMode: (enabled: boolean) => void;
   prefillPartnerCode?: string | null;
   pinAuthError?: boolean;
+  onPinAuthError?: () => void;
   onClearPinAuthError?: () => void;
   onNotify: (msg: string) => void;
 }
@@ -129,6 +136,7 @@ export function PartnerView({
   onTogglePartnerOnlyMode,
   prefillPartnerCode,
   pinAuthError = false,
+  onPinAuthError,
   onClearPinAuthError,
   onNotify,
 }: PartnerViewProps) {
@@ -138,41 +146,32 @@ export function PartnerView({
   const [pinInput, setPinInput] = useState('');
   const [showSharePin, setShowSharePin] = useState(false);
   const [showQrModal, setShowQrModal] = useState(false);
-  const [adultSyncConsent, setAdultSyncConsent] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('luna_partner_18plus_consent') === '1';
-    } catch {
-      return false;
-    }
-  });
+  const adultSyncConsent = Boolean(shareConfig.adultSyncConsent);
   const [forecastDaysCount, setForecastDaysCount] = useState<14 | 30>(14);
   const [copied, setCopied] = useState(false);
   const [shareStatus, setShareStatus] = useState<string | null>(null);
   const [syncingShare, setSyncingShare] = useState(false);
 
-  const careKitStorageKey = `luna_partner_carekit_${watchedSnapshot?.nextPeriodDate ?? summary.today}`;
-  const [careKitChecked, setCareKitChecked] = useState<string[]>(() => {
-    try {
-      const raw = localStorage.getItem(careKitStorageKey);
-      return raw ? (JSON.parse(raw) as string[]) : [];
-    } catch {
-      return [];
-    }
-  });
+  const currentCareKitKey = watchedSnapshot?.nextPeriodDate ?? summary.today;
+  const careKitChecked =
+    watchConfig?.careKitCycleKey === currentCareKitKey ? (watchConfig?.careKitChecked ?? []) : [];
 
   const toggleCareKitItem = (item: string) => {
-    setCareKitChecked((prev) => {
-      const next = prev.includes(item) ? prev.filter((x) => x !== item) : [...prev, item];
-      try {
-        localStorage.setItem(careKitStorageKey, JSON.stringify(next));
-      } catch {
-        // Ignore
-      }
-      return next;
+    if (!watchConfig) return;
+    const prev =
+      watchConfig.careKitCycleKey === currentCareKitKey ? (watchConfig.careKitChecked ?? []) : [];
+    const next = prev.includes(item) ? prev.filter((x) => x !== item) : [...prev, item];
+    onUpdateWatchConfig({
+      ...watchConfig,
+      careKitCycleKey: currentCareKitKey,
+      careKitChecked: next,
     });
   };
 
-  const [connectCode, setConnectCode] = useState(prefillPartnerCode || watchConfig?.code || '');
+  const [connectCode, setConnectCode] = useState(
+    prefillPartnerCode ||
+      (watchConfig ? formatPartnerPairingToken(watchConfig.code, watchConfig.syncKey) : ''),
+  );
   const [connectPin, setConnectPin] = useState('');
   const [recoveryPin, setRecoveryPin] = useState('');
   const [connectUrl, setConnectUrl] = useState(
@@ -183,15 +182,6 @@ export function PartnerView({
   const [carePingInput, setCarePingInput] = useState('');
   const [sendingCarePing, setSendingCarePing] = useState(false);
   const [selectedForecastDay, setSelectedForecastDay] = useState<{ date: string; phase: PartnerSnapshot['phase'] } | null>(null);
-
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(careKitStorageKey);
-      setCareKitChecked(raw ? (JSON.parse(raw) as string[]) : []);
-    } catch {
-      setCareKitChecked([]);
-    }
-  }, [careKitStorageKey]);
 
   useEffect(() => {
     if (partnerOnlyMode) {
@@ -221,27 +211,35 @@ export function PartnerView({
     }
   };
 
+  const pairingToken = formatPartnerPairingToken(shareConfig.code, shareConfig.syncKey);
+  const inviteUrl = buildPartnerInviteUrl(shareConfig.code, shareConfig.syncKey);
+
   const handleCopyInvite = async () => {
-    const inviteUrl = `https://jee1vk.github.io/lunacycle-app/?partner=${shareConfig.code}`;
-    const pinLine = shareConfig.pin ? `\nPIN: ${shareConfig.pin}` : '';
-    const text = `Join my private LunaCycle Partner View:\n${inviteUrl}\nPartner Code: ${shareConfig.code}${pinLine}`;
+    // Keep 4-digit PIN separate from the #hash invite link to preserve two-factor separation
+    const pinNote = shareConfig.pin ? '\n(4-digit PIN is enabled — share PIN separately)' : '';
+    const text = `Join my private LunaCycle Partner View:\n${inviteUrl}\nPairing Key: ${pairingToken}${pinNote}`;
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
-      setShareStatus('Invite link, code & PIN copied — paste in WhatsApp or SMS!');
+      setShareStatus(
+        shareConfig.pin
+          ? 'Encrypted #hash invite link copied — share your 4-digit PIN separately!'
+          : 'Encrypted #hash invite link & Pairing Key copied — paste in WhatsApp or SMS!',
+      );
       window.setTimeout(() => setCopied(false), 2200);
     } catch {
-      setShareStatus(`Code: ${shareConfig.code}${shareConfig.pin ? ` · PIN: ${shareConfig.pin}` : ''}`);
+      setShareStatus(`Pairing Key: ${pairingToken}`);
     }
   };
 
   const handleCopyCode = async () => {
     try {
-      await navigator.clipboard.writeText(shareConfig.code);
+      await navigator.clipboard.writeText(pairingToken);
       setCopied(true);
+      setShareStatus('Full E2EE Pairing Key copied to clipboard.');
       window.setTimeout(() => setCopied(false), 2000);
     } catch {
-      setShareStatus(`Partner Code: ${shareConfig.code}`);
+      setShareStatus(`Pairing Key: ${pairingToken}`);
     }
   };
 
@@ -298,16 +296,18 @@ export function PartnerView({
 
   const handleRotateCode = async () => {
     // Wipe previous code from relay first so old code stops working immediately
-    if (shareConfig.enabled) {
+    if (shareConfig.enabled || shareConfig.lastSyncedAt) {
       await deletePartnerSnapshot(shareConfig);
     }
     const nextCfg: PartnerShareConfig = {
       ...shareConfig,
       code: generatePartnerCode(6),
+      syncKey: generateSyncKey(),
+      writeSecret: generateWriteSecret(),
       lastSyncedAt: undefined,
     };
     onUpdateShareConfig(nextCfg);
-    setShareStatus('Generated a fresh Partner Code and revoked the previous one.');
+    setShareStatus('Generated a fresh Pairing Key & 128-bit E2EE secret and revoked the previous one.');
     if (nextCfg.enabled) {
       void handleSyncNow(nextCfg);
     }
@@ -326,9 +326,9 @@ export function PartnerView({
   };
 
   const handleConnect = async () => {
-    const cleanCode = connectCode.replace(/\s+/g, '').toUpperCase();
-    if (!/^[A-Z0-9]{6}$/.test(cleanCode)) {
-      setWatchStatus('Enter a valid 6-character Partner Code.');
+    const parsed = parsePartnerPairingInput(connectCode);
+    if (!parsed) {
+      setWatchStatus('Paste the Pairing Key (CODE.KEY) or #partner invite link from your partner.');
       return;
     }
     if (!connectUrl.trim()) {
@@ -340,7 +340,8 @@ export function PartnerView({
     const cleanPin = connectPin.trim() || undefined;
     const pinHash = cleanPin ? await hashPartnerPin(cleanPin) : undefined;
     const nextWatch: PartnerWatchConfig = {
-      code: cleanCode,
+      code: parsed.code,
+      syncKey: parsed.syncKey,
       pin: cleanPin,
       pinHash,
       syncServerUrl: connectUrl.trim(),
@@ -348,6 +349,8 @@ export function PartnerView({
       syncPartnerTheme: watchConfig?.syncPartnerTheme ?? true,
       alertsOnThisPhone: watchConfig?.alertsOnThisPhone ?? true,
       dailyCheckinTime: watchConfig?.dailyCheckinTime ?? '18:30',
+      careKitCycleKey: watchConfig?.careKitCycleKey,
+      careKitChecked: watchConfig?.careKitChecked,
       lastFetchedAt: new Date().toISOString(),
     };
     const res = await fetchPartnerSnapshot(nextWatch);
@@ -359,9 +362,7 @@ export function PartnerView({
       setWatchStatus(`Connected live to ${res.snapshot.profileLabel}.`);
       onNotify(`Connected to ${res.snapshot.profileLabel}`);
     } else {
-      setWatchStatus(
-        res.pinRequired ? 'PIN required or incorrect.' : (res.error ?? 'Could not connect.'),
-      );
+      setWatchStatus(res.error ?? (res.pinRequired ? 'PIN or full Pairing Key required.' : 'Could not connect.'));
     }
   };
 
@@ -400,6 +401,9 @@ export function PartnerView({
       onClearPinAuthError?.();
       setWatchStatus('Updated just now.');
     } else {
+      if (res.pinRequired) {
+        onPinAuthError?.();
+      }
       setWatchStatus(
         res.pinRequired ? 'Partner updated their PIN — enter the new PIN below.' : (res.error ?? 'Could not refresh.'),
       );
@@ -417,7 +421,6 @@ export function PartnerView({
       (watchedSnapshot.isPeriodActiveToday ||
         (watchedSnapshot.daysUntilNextPeriod !== null && watchedSnapshot.daysUntilNextPeriod <= 4)),
   );
-  const inviteUrl = `https://jee1vk.github.io/lunacycle-app/?partner=${shareConfig.code}`;
   const qrMatrix = showQrModal ? generateQrMatrix(inviteUrl) : null;
 
   return (
@@ -489,19 +492,21 @@ export function PartnerView({
         {!watchConfig || !watchedSnapshot ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <p className="section-caption">
-              Enter your partner&apos;s 6-character code to see their cycle phase, comfort cues, and upcoming dates privately.
+              Paste your partner&apos;s E2EE Pairing Key (<code>CODE.KEY</code>) or scan their QR code to view cycle phase, comfort cues, and upcoming dates privately.
             </p>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1.35fr 0.85fr', gap: 10 }}>
               <label className="field-group">
-                <span className="field-label">Partner Code</span>
+                <span className="field-label">Pairing Key or Invite Link</span>
                 <input
                   type="text"
-                  maxLength={6}
-                  placeholder="e.g. K7M9P2"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  placeholder="e.g. K7M9P2.xY9_..."
                   className="input-control tabular"
-                  style={{ textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 600 }}
+                  style={{ fontWeight: 600 }}
                   value={connectCode}
-                  onChange={(e) => setConnectCode(e.target.value.toUpperCase())}
+                  onChange={(e) => setConnectCode(e.target.value)}
                 />
               </label>
               <label className="field-group">
@@ -509,6 +514,9 @@ export function PartnerView({
                 <input
                   type="password"
                   inputMode="numeric"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck={false}
                   maxLength={4}
                   placeholder="Optional 4-digit"
                   className="input-control tabular"
@@ -597,6 +605,9 @@ export function PartnerView({
                   <input
                     type="password"
                     inputMode="numeric"
+                    autoComplete="off"
+                    autoCorrect="off"
+                    spellCheck={false}
                     maxLength={4}
                     className="input-control tabular"
                     placeholder="New 4-digit PIN"
@@ -1054,6 +1065,7 @@ export function PartnerView({
                         sample.body,
                         data.settings.disguiseMode,
                         data.settings.reminders.customNotificationText,
+                        Boolean(data.settings.reminders.showLockScreenDetails),
                       );
                       onNotify(
                         ok
@@ -1082,6 +1094,9 @@ export function PartnerView({
                 <span className="field-label" style={{ fontSize: '0.76rem' }}>Your Name (shown on her screen)</span>
                 <input
                   type="text"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck={false}
                   className="input-control"
                   style={{ minHeight: 38, fontSize: '0.85rem' }}
                   placeholder="e.g. Jeevan"
@@ -1123,6 +1138,9 @@ export function PartnerView({
               <div style={{ display: 'flex', gap: 6 }}>
                 <input
                   type="text"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck={false}
                   className="input-control"
                   maxLength={140}
                   placeholder="Write a short note..."
@@ -1301,13 +1319,7 @@ export function PartnerView({
               type="checkbox"
               checked={adultSyncConsent}
               onChange={(e) => {
-                const ok = e.target.checked;
-                setAdultSyncConsent(ok);
-                try {
-                  localStorage.setItem('luna_partner_18plus_consent', ok ? '1' : '0');
-                } catch {
-                  // Ignore
-                }
+                onUpdateShareConfig({ ...shareConfig, adultSyncConsent: e.target.checked });
               }}
               style={{ width: 20, height: 20, marginTop: 2, flexShrink: 0 }}
             />
@@ -1318,7 +1330,7 @@ export function PartnerView({
         ) : null}
 
         <p className="section-caption" style={{ marginBottom: 14 }}>
-          Share a live read-only view with your partner using a 6-character code &amp; optional PIN. Private notes, BBT, LH tests, and intimacy logs are <strong>never</strong> shared.
+          Share a live read-only view using a 128-bit E2EE Pairing Key (<code>#partner=CODE.KEY</code>) &amp; optional PIN. Private notes, BBT, LH tests, and intimacy logs are <strong>never</strong> shared.
         </p>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -1327,6 +1339,9 @@ export function PartnerView({
               <span className="field-label">Your Name / Label</span>
               <input
                 type="text"
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
                 className="input-control"
                 placeholder="e.g. Priya"
                 value={shareConfig.profileLabel}
@@ -1345,6 +1360,9 @@ export function PartnerView({
                   id="partner-share-pin"
                   type="password"
                   inputMode="numeric"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck={false}
                   maxLength={4}
                   className="input-control tabular"
                   placeholder={shareConfig.pinHash ? 'PIN active' : 'No PIN'}
@@ -1362,6 +1380,10 @@ export function PartnerView({
                       return;
                     }
                     const hashed = cleanPin ? await hashPartnerPin(cleanPin) : undefined;
+                    if (shareConfig.enabled || shareConfig.lastSyncedAt) {
+                      // Clear old-PIN care thread so partner can seamlessly start a fresh encrypted thread with the new PIN
+                      await clearPartnerCarePing(shareConfig);
+                    }
                     const updated = { ...shareConfig, pin: cleanPin, pinHash: hashed };
                     onUpdateShareConfig(updated);
                     setPinInput('');
@@ -1388,18 +1410,21 @@ export function PartnerView({
               gap: 10,
             }}
           >
-            <div>
-              <div className="metric-label">Your Partner Code</div>
+            <div style={{ minWidth: 0 }}>
+              <div className="metric-label">Your E2EE Pairing Key</div>
               <div
                 className="tabular"
                 style={{
-                  fontSize: '1.45rem',
+                  fontSize: '1.35rem',
                   fontWeight: 700,
-                  letterSpacing: '0.14em',
+                  letterSpacing: '0.1em',
                   color: 'var(--color-brand-primary)',
                 }}
               >
                 {shareConfig.code}
+              </div>
+              <div className="section-caption tabular" style={{ wordBreak: 'break-all', fontSize: '0.72rem' }}>
+                Key: {pairingToken}
               </div>
               {shareConfig.pin ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
@@ -1453,7 +1478,7 @@ export function PartnerView({
                 onClick={() => void handleCopyCode()}
               >
                 <Copy size={15} />
-                Code
+                Key
               </button>
               <button
                 type="button"
@@ -1461,7 +1486,7 @@ export function PartnerView({
                 style={{ minHeight: 42, padding: '8px 12px', fontSize: '0.82rem' }}
                 onClick={() => void handleRotateCode()}
               >
-                New Code
+                Rotate Key
               </button>
             </div>
           </div>

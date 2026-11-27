@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { App as CapApp } from '@capacitor/app';
+import { Capacitor } from '@capacitor/core';
 import {
+  AlertTriangle,
   BarChart3,
   BookOpen,
   Calendar,
@@ -12,6 +15,7 @@ import {
 import { CalendarView } from './components/CalendarView';
 import { DailyLogDialog } from './components/DailyLogDialog';
 import { InsightsView } from './components/InsightsView';
+import { ModalDialog } from './components/ModalDialog';
 import { PartnerView } from './components/PartnerView';
 import { PillRingingModal, type ActivePillRing } from './components/PillRingingModal';
 import { PinLockScreen } from './components/PinLockScreen';
@@ -52,6 +56,7 @@ import {
   exportJsonBackup,
   openDoctorPdfReport,
   parseImportedBackup,
+  shareDoctorReportHtml,
 } from './engine/exportReport';
 import {
   computePillPackStatus,
@@ -62,6 +67,7 @@ import {
 import { getUiStrings } from './engine/i18n';
 import { importExternalHistory } from './engine/importers';
 import {
+  cancelAllNativeNotifications,
   scheduleNativeHygieneNotification,
   scheduleNativePillSnooze,
   subscribeNativePillAlarmTap,
@@ -84,6 +90,9 @@ import {
   fetchCareThreadForPartner,
   fetchCareThreadForPrimary,
   fetchPartnerSnapshot,
+  formatPartnerPairingToken,
+  generateSyncKey,
+  parsePartnerPairingInput,
   pushPartnerSnapshot,
   sendPrimaryCareRequestOrReaction,
 } from './engine/partnerSync';
@@ -133,10 +142,15 @@ export function App() {
   const [activeTab, setActiveTab] = useState<TabId>('today');
   const [calendarEditInit, setCalendarEditInit] = useState(false);
   const [logDialogDate, setLogDialogDate] = useState<string | null>(null);
+  const [pendingPlaintextExport, setPendingPlaintextExport] = useState<'pdf' | 'csv' | null>(null);
+  const [doctorReportHtml, setDoctorReportHtml] = useState<string | null>(null);
+  const [openMedicalSourcesSignal, setOpenMedicalSourcesSignal] = useState(0);
+  const [openEncryptedExportSignal, setOpenEncryptedExportSignal] = useState(0);
   const [toast, setToast] = useState<string | null>(null);
   const [activePillRing, setActivePillRing] = useState<ActivePillRing | null>(null);
   const [pillSnooze, setPillSnooze] = useState<{ wakeAtMs: number; scheduledTime: string } | null>(null);
   const firedPillAlarmKeysRef = useRef<Set<string>>(new Set());
+  const vaultEpochRef = useRef(0);
   const [otaState, setOtaState] = useState<OtaUpdateState>(() => ({
     currentVersion: CURRENT_APP_VERSION,
     latestVersion: null,
@@ -209,7 +223,15 @@ export function App() {
         if (cancelled) return;
 
         setBiometricInfo(bio);
-        if (storedShare) setPartnerShareConfig(storedShare);
+        if (storedShare) {
+          if (!storedShare.syncKey && !storedShare.enabled && !storedShare.lastSyncedAt) {
+            const upgraded = { ...storedShare, syncKey: generateSyncKey() };
+            setPartnerShareConfig(upgraded);
+            void savePartnerShareConfigToVault(upgraded);
+          } else {
+            setPartnerShareConfig(storedShare);
+          }
+        }
         if (storedWatch) setPartnerWatchConfig(storedWatch);
         if (storedSnap) setWatchedPartnerSnapshot(storedSnap);
 
@@ -303,8 +325,12 @@ export function App() {
   const persistData = (next: LunaData, pinOverride?: string) => {
     setData(next);
     const pinToUse = pinOverride ?? activePin;
+    const epoch = vaultEpochRef.current;
     persistQueueRef.current = persistQueueRef.current
-      .then(() => saveLunaData(next, pinToUse))
+      .then(() => {
+        if (epoch !== vaultEpochRef.current) return;
+        return saveLunaData(next, pinToUse);
+      })
       .catch(() => {
         showToast('Could not save to local vault.');
       });
@@ -385,6 +411,7 @@ export function App() {
     summary,
     partnerShareConfig.enabled,
     partnerShareConfig.code,
+    partnerShareConfig.syncKey,
     partnerShareConfig.profileLabel,
     partnerShareConfig.pinHash,
     partnerShareConfig.syncServerUrl,
@@ -395,6 +422,40 @@ export function App() {
     partnerShareConfig.todayNeedStatus,
     partnerShareConfig.comfortPreferences,
   ]);
+
+  // Android Hardware Back Button handling (@capacitor/app)
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    let removed = false;
+    let listenerHandle: { remove: () => Promise<void> } | null = null;
+    void CapApp.addListener('backButton', ({ canGoBack }) => {
+      if (logDialogDate !== null) {
+        setLogDialogDate(null);
+        return;
+      }
+      if (pendingPlaintextExport !== null) {
+        setPendingPlaintextExport(null);
+        return;
+      }
+      const homeTab: TabId = data.settings.partnerOnlyMode ? 'partner' : 'today';
+      if (activeTab !== homeTab) {
+        setActiveTab(homeTab);
+        return;
+      }
+      if (canGoBack) {
+        window.history.back();
+      } else {
+        void CapApp.exitApp();
+      }
+    }).then((h) => {
+      if (removed) void h.remove();
+      else listenerHandle = h;
+    });
+    return () => {
+      removed = true;
+      if (listenerHandle) void listenerHandle.remove();
+    };
+  }, [activeTab, logDialogDate, pendingPlaintextExport, data.settings.partnerOnlyMode]);
 
   // Auto-land on Partner tab when Partner-Only Phone Mode is enabled
   useEffect(() => {
@@ -419,7 +480,7 @@ export function App() {
       const latestToPrimary =
         res.thread.pings.find((p) => (p.direction ?? 'to_primary') === 'to_primary') ?? null;
       if (latestToPrimary) {
-        const dismissedId = localStorage.getItem('luna_dismissed_care_ping_id');
+        const dismissedId = partnerShareConfig.dismissedCarePingId;
         if (dismissedId !== latestToPrimary.id) {
           setIncomingCarePing(latestToPrimary);
           const notifKey = `luna_care_ping_notif_${latestToPrimary.id}`;
@@ -434,6 +495,8 @@ export function App() {
                 : `Care Ping from ${latestToPrimary.senderLabel}`,
               latestToPrimary.message,
               data.settings.disguiseMode,
+              Boolean(data.settings.reminders.showLockScreenDetails),
+              data.settings.reminders.customNotificationText,
             );
           }
         }
@@ -454,48 +517,63 @@ export function App() {
     locked,
     partnerShareConfig.enabled,
     partnerShareConfig.code,
+    partnerShareConfig.syncKey,
     partnerShareConfig.pin,
     partnerShareConfig.writeSecret,
     partnerShareConfig.syncServerUrl,
+    partnerShareConfig.dismissedCarePingId,
     data.settings.simpleMode,
     data.settings.disguiseMode,
+    data.settings.reminders.showLockScreenDetails,
+    data.settings.reminders.customNotificationText,
   ]);
 
-  // Handle Android / PWA App Icon Long-Press Shortcuts (?action=...) & Partner Deep-Link (?partner=CODE)
+  // Handle App Icon Shortcuts (?action=...) & Zero-Leak Partner Pairing (#partner=CODE.SYNCKEY) on both cold boot and warm hashchange
   const shortcutHandledRef = useRef(false);
   useEffect(() => {
-    if (!ready || locked || shortcutHandledRef.current) return;
-    const params = new URLSearchParams(window.location.search);
-    const action = params.get('action');
-    const partnerCodeParam = params.get('partner');
-    if (!action && !partnerCodeParam) return;
-    shortcutHandledRef.current = true;
-    params.delete('action');
-    params.delete('partner');
-    const cleanUrl = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}${window.location.hash}`;
-    window.history.replaceState({}, '', cleanUrl);
+    if (!ready || locked) return;
 
-    if (partnerCodeParam) {
-      const clean = partnerCodeParam.replace(/\s+/g, '').toUpperCase();
-      if (/^[A-Z0-9]{6}$/.test(clean)) {
-        setPrefillPartnerCode(clean);
+    const processUrlDeepLinks = () => {
+      const params = new URLSearchParams(window.location.search);
+      const action = shortcutHandledRef.current ? null : params.get('action');
+      const hashRaw = window.location.hash;
+      const legacyPartnerParam = params.get('partner');
+      const hasHashPartner = /[#&]partner=/i.test(hashRaw);
+
+      if (!action && !legacyPartnerParam && !hasHashPartner) return;
+
+      if (action) shortcutHandledRef.current = true;
+      params.delete('action');
+      params.delete('partner');
+      const cleanHash = hasHashPartner ? '' : hashRaw;
+      const cleanUrl = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}${cleanHash}`;
+      window.history.replaceState({}, '', cleanUrl);
+
+      const parsedPartner = parsePartnerPairingInput(hasHashPartner ? hashRaw : (legacyPartnerParam ?? ''));
+      if (parsedPartner) {
+        const fullToken = formatPartnerPairingToken(parsedPartner.code, parsedPartner.syncKey);
+        setPrefillPartnerCode(fullToken);
         setActiveTab('partner');
-        showToast(`Partner Code ${clean} pre-filled — tap Connect Live!`);
+        showToast(`Partner Key ${parsedPartner.code} pre-filled — tap Connect!`);
         return;
       }
-    }
 
-    if (action === 'log-period') {
-      handleQuickTogglePeriodToday();
-    } else if (action === 'take-pill') {
-      if (!data.settings.pillPack.takenDates.includes(today)) {
-        handleTogglePillDate(today);
-      } else {
-        showToast('Today’s pill is already marked taken.');
+      if (action === 'log-period') {
+        handleQuickTogglePeriodToday();
+      } else if (action === 'take-pill') {
+        if (!data.settings.pillPack.takenDates.includes(today)) {
+          handleTogglePillDate(today);
+        } else {
+          showToast('Today’s pill is already marked taken.');
+        }
+      } else if (action === 'log-symptoms') {
+        setLogDialogDate(today);
       }
-    } else if (action === 'log-symptoms') {
-      setLogDialogDate(today);
-    }
+    };
+
+    processUrlDeepLinks();
+    window.addEventListener('hashchange', processUrlDeepLinks);
+    return () => window.removeEventListener('hashchange', processUrlDeepLinks);
   }, [ready, locked]);
 
   // Partner Auto-Refresh every 60s when connected to a partner
@@ -529,6 +607,8 @@ export function App() {
               `Request from ${latestReq.senderLabel}`,
               latestReq.message,
               data.settings.disguiseMode,
+              Boolean(data.settings.reminders.showLockScreenDetails),
+              data.settings.reminders.customNotificationText,
             );
           }
         }
@@ -545,6 +625,8 @@ export function App() {
               immediate.title,
               immediate.body,
               data.settings.disguiseMode,
+              Boolean(data.settings.reminders.showLockScreenDetails),
+              data.settings.reminders.customNotificationText,
             );
           }
         }
@@ -562,9 +644,9 @@ export function App() {
       cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, [ready, locked, partnerWatchConfig?.code, partnerWatchConfig?.pinHash, partnerWatchConfig?.syncServerUrl, partnerWatchConfig?.alertsOnThisPhone, today, data.settings.disguiseMode]);
+  }, [ready, locked, partnerWatchConfig?.code, partnerWatchConfig?.syncKey, partnerWatchConfig?.pinHash, partnerWatchConfig?.syncServerUrl, partnerWatchConfig?.alertsOnThisPhone, today, data.settings.disguiseMode, data.settings.reminders.showLockScreenDetails, data.settings.reminders.customNotificationText]);
 
-  // Keep native Android OS Partner Care Notifications in sync (cancels immediately on disconnect or toggle OFF, reschedules immediately on time change)
+  // Keep native OS Partner Care Notifications in sync
   useEffect(() => {
     if (!ready || locked) return;
     void syncNativePartnerNotifications(
@@ -572,6 +654,7 @@ export function App() {
       partnerWatchConfig,
       data.settings.disguiseMode,
       data.settings.reminders.customNotificationText,
+      Boolean(data.settings.reminders.showLockScreenDetails),
     );
   }, [
     ready,
@@ -582,9 +665,10 @@ export function App() {
     partnerWatchConfig?.code,
     data.settings.disguiseMode,
     data.settings.reminders.customNotificationText,
+    data.settings.reminders.showLockScreenDetails,
   ]);
 
-  // Sync native Android OS notifications whenever logs/settings/summary change inside the APK
+  // Sync native OS notifications whenever logs/settings/summary change
   useEffect(() => {
     if (!ready || locked) return;
     void syncNativeScheduledNotifications(data, summary, latestPeriodStartDate);
@@ -597,8 +681,14 @@ export function App() {
     const key = `luna_notif_${today}_${first.id}`;
     if (sessionStorage.getItem(key)) return;
     sessionStorage.setItem(key, '1');
-    dispatchGentleBrowserNotification(first.title, first.body, data.settings.disguiseMode);
-  }, [ready, locked, activeReminders, today, data.settings.disguiseMode]);
+    dispatchGentleBrowserNotification(
+      first.title,
+      first.body,
+      data.settings.disguiseMode,
+      Boolean(data.settings.reminders.showLockScreenDetails),
+      data.settings.reminders.customNotificationText,
+    );
+  }, [ready, locked, activeReminders, today, data.settings.disguiseMode, data.settings.reminders.showLockScreenDetails, data.settings.reminders.customNotificationText]);
 
   const handleUnlock = async (pin: string): Promise<boolean> => {
     if (!pinConfig) return false;
@@ -701,6 +791,7 @@ export function App() {
       timer,
       data.settings.disguiseMode,
       data.settings.reminders.customNotificationText,
+      Boolean(data.settings.reminders.showLockScreenDetails),
     );
     showToast(`Started ${timer.durationHours}h ${product} timer.`);
   };
@@ -735,6 +826,7 @@ export function App() {
       nextTimer,
       data.settings.disguiseMode,
       data.settings.reminders.customNotificationText,
+      Boolean(data.settings.reminders.showLockScreenDetails),
     );
     showToast(
       restart
@@ -815,9 +907,11 @@ export function App() {
         setActivePillRing(buildPillRingTarget(sched, false));
         const dose = pillStatus.pillsPerDay === 1 ? '1 pill' : `${pillStatus.pillsPerDay} pills`;
         dispatchGentleBrowserNotification(
-          'Daily Pill Alarm (Snoozed)',
-          `Time to take your daily dose (${dose}).`,
+          'Daily Pill Reminder (Snoozed)',
+          `Time for your daily pill pack reminder (${dose}).`,
           data.settings.disguiseMode,
+          Boolean(data.settings.reminders.showLockScreenDetails),
+          data.settings.reminders.customNotificationText,
         );
         return;
       }
@@ -837,9 +931,11 @@ export function App() {
         setActivePillRing(buildPillRingTarget(timeStr, false));
         const dose = pillStatus.pillsPerDay === 1 ? '1 pill' : `${pillStatus.pillsPerDay} pills`;
         dispatchGentleBrowserNotification(
-          'Daily Pill Alarm',
-          `Time to take your daily dose (${dose}) — ${timeStr}.`,
+          'Daily Pill Reminder',
+          `Time for your daily pill pack reminder (${dose}) — ${timeStr}.`,
           data.settings.disguiseMode,
+          Boolean(data.settings.reminders.showLockScreenDetails),
+          data.settings.reminders.customNotificationText,
         );
         break;
       }
@@ -862,6 +958,8 @@ export function App() {
     latestPeriodStartDate,
     data.settings.simpleMode,
     data.settings.disguiseMode,
+    data.settings.reminders.showLockScreenDetails,
+    data.settings.reminders.customNotificationText,
     data.settings.pillPack,
     pillSnooze,
   ]);
@@ -925,7 +1023,10 @@ export function App() {
 
   const handleDismissCarePing = () => {
     if (incomingCarePing) {
-      localStorage.setItem('luna_dismissed_care_ping_id', incomingCarePing.id);
+      handleUpdatePartnerShareConfig({
+        ...partnerShareConfig,
+        dismissedCarePingId: incomingCarePing.id,
+      });
     }
     setIncomingCarePing(null);
   };
@@ -981,13 +1082,19 @@ export function App() {
   };
 
   const handleSetPin = async (pin: string) => {
+    vaultEpochRef.current += 1;
+    await persistQueueRef.current.catch(() => {});
     await clearBiometricCredentials();
     const cfg = await createPinConfig(pin, true);
     cfg.disguiseMode = data.settings.disguiseMode;
     cfg.theme = data.settings.theme;
     cfg.customTheme = data.settings.customTheme;
-    await savePinConfig(cfg);
-    await saveLunaData(data, pin);
+    const job = (async () => {
+      await savePinConfig(cfg);
+      await saveLunaData(data, pin);
+    })();
+    persistQueueRef.current = job;
+    await job;
     setPinConfig(cfg);
     setActivePin(pin);
     showToast('PIN lock enabled & vault encrypted.');
@@ -1024,20 +1131,34 @@ export function App() {
   };
 
   const handleRemovePin = async () => {
+    vaultEpochRef.current += 1;
+    await persistQueueRef.current.catch(() => {});
     await clearBiometricCredentials();
-    await savePinConfig(null);
-    await saveLunaData(data, undefined);
+    const job = (async () => {
+      await savePinConfig(null);
+      await saveLunaData(data, undefined);
+    })();
+    persistQueueRef.current = job;
+    await job;
     setPinConfig(null);
     setActivePin(undefined);
     showToast('PIN lock disabled.');
   };
 
-  const handleExportDoctorPdf = () => {
+  const runDoctorPdfExportNow = () => {
     const insights = computePhaseSymptomInsights(data.logs, stats, data.settings, today);
-    const opened = openDoctorPdfReport(data, stats, insights, today);
-    if (!opened) {
-      showToast('Please allow pop-ups to open the printable PDF summary.');
+    const res = openDoctorPdfReport(data, stats, insights, today);
+    if (res.mode === 'modal') {
+      setDoctorReportHtml(res.html);
     }
+  };
+
+  const handleExportDoctorPdf = () => {
+    setPendingPlaintextExport('pdf');
+  };
+
+  const handleRequestExportCsv = () => {
+    setPendingPlaintextExport('csv');
   };
 
   const handleImportJsonText = async (
@@ -1073,11 +1194,28 @@ export function App() {
   };
 
   const handleEraseAllData = async () => {
-    await clearBiometricCredentials();
-    if (partnerShareConfig.enabled || partnerShareConfig.lastSyncedAt) {
-      await deletePartnerSnapshot(partnerShareConfig);
+    vaultEpochRef.current += 1;
+    if (autoSyncTimerRef.current) {
+      window.clearTimeout(autoSyncTimerRef.current);
+      autoSyncTimerRef.current = null;
     }
-    await eraseAllVaultData();
+    pillAlarmAudio.stop();
+    setActivePillRing(null);
+    setPillSnooze(null);
+    await persistQueueRef.current.catch(() => {});
+    const shareSnapshotToDelete = partnerShareConfig;
+    const eraseJob = (async () => {
+      await Promise.all([
+        clearBiometricCredentials(),
+        cancelAllNativeNotifications(),
+        shareSnapshotToDelete.enabled || shareSnapshotToDelete.lastSyncedAt
+          ? deletePartnerSnapshot(shareSnapshotToDelete)
+          : Promise.resolve({ ok: true }),
+      ]);
+      await eraseAllVaultData();
+    })();
+    persistQueueRef.current = eraseJob;
+    await eraseJob;
     setPinConfig(null);
     setActivePin(undefined);
     setData(createInitialData());
@@ -1087,7 +1225,7 @@ export function App() {
     setIncomingCarePing(null);
     setCareThread({ pings: [], updatedAt: '' });
     setLocked(false);
-    showToast('All local & relay data permanently erased.');
+    showToast('All local vault records, OS reminders & relay data permanently erased.');
   };
 
   if (!ready) {
@@ -1254,6 +1392,7 @@ export function App() {
             }}
             prefillPartnerCode={prefillPartnerCode}
             pinAuthError={partnerPinAuthError}
+            onPinAuthError={() => setPartnerPinAuthError(true)}
             onClearPinAuthError={() => setPartnerPinAuthError(false)}
             onNotify={showToast}
           />
@@ -1265,6 +1404,10 @@ export function App() {
             stats={stats}
             today={today}
             onExportDoctorPdf={handleExportDoctorPdf}
+            onOpenMedicalSources={() => {
+              setActiveTab('settings');
+              setOpenMedicalSourcesSignal((n) => n + 1);
+            }}
           />
         ) : null}
 
@@ -1285,18 +1428,17 @@ export function App() {
             onToggleBiometric={handleToggleBiometric}
             onExportJson={async (pass) => {
               await exportJsonBackup(data, today, pass);
-              showToast(pass?.trim() ? 'Encrypted backup downloaded.' : 'JSON backup downloaded.');
+              showToast(pass?.trim() ? 'Encrypted AES-256-GCM backup downloaded.' : 'Unencrypted JSON backup downloaded.');
             }}
             onImportJsonText={handleImportJsonText}
             onImportExternalFile={handleImportExternalFile}
-            onExportCsv={() => {
-              exportCsvLogs(data, today);
-              showToast('CSV logs exported.');
-            }}
+            onExportCsv={handleRequestExportCsv}
             onExportDoctorPdf={handleExportDoctorPdf}
             onLoadSampleData={handleLoadSampleData}
             onEraseAllData={handleEraseAllData}
             onTriggerTestPillAlarm={handleTriggerTestPillAlarm}
+            openMedicalSourcesSignal={openMedicalSourcesSignal}
+            openEncryptedExportSignal={openEncryptedExportSignal}
             onNotify={showToast}
           />
         ) : null}
@@ -1410,6 +1552,7 @@ export function App() {
             data.settings.pillPack.pillsPerDay ?? 1,
             data.settings.disguiseMode,
             data.settings.reminders.customNotificationText,
+            Boolean(data.settings.reminders.showLockScreenDetails),
           );
           showToast(`Pill alarm snoozed for ${minutes} minutes.`);
         }}
@@ -1418,6 +1561,106 @@ export function App() {
           setActivePillRing(null);
         }}
       />
+
+      {/* Unencrypted Export Security Warning Modal (Doctor PDF / CSV) */}
+      <ModalDialog
+        open={pendingPlaintextExport !== null}
+        title="Export Unencrypted File?"
+        subtitle={
+          pendingPlaintextExport === 'pdf'
+            ? 'Doctor PDF summaries contain readable cycle & symptom history'
+            : 'CSV spreadsheets contain readable cycle, symptom & private note rows'
+        }
+        onClose={() => setPendingPlaintextExport(null)}
+        footer={
+          <>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => {
+                setPendingPlaintextExport(null);
+                setActiveTab('settings');
+                setOpenEncryptedExportSignal((n) => n + 1);
+              }}
+              style={{ marginRight: 'auto' }}
+            >
+              <Lock size={15} />
+              Encrypted JSON Instead
+            </button>
+            <button
+              type="button"
+              className="btn-secondary"
+              autoFocus
+              onClick={() => setPendingPlaintextExport(null)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={async () => {
+                const mode = pendingPlaintextExport;
+                setPendingPlaintextExport(null);
+                if (mode === 'pdf') {
+                  runDoctorPdfExportNow();
+                } else if (mode === 'csv') {
+                  const ok = await exportCsvLogs(data, today);
+                  if (ok) showToast('Unencrypted CSV logs exported.');
+                }
+              }}
+            >
+              Continue Export
+            </button>
+          </>
+        }
+      >
+        <div className="reminder-item reminder-item--period">
+          <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: 2 }} />
+          <p className="reminder-body" style={{ margin: 0 }}>
+            Inside LunaCycle, your logs are encrypted at rest with <strong>AES-256-GCM</strong>. Once exported as a printable PDF or CSV file, any app or cloud folder with access to your Downloads can read that file. For personal backups, use <strong>Encrypted JSON Backup</strong> instead.
+          </p>
+        </div>
+      </ModalDialog>
+
+      {/* In-App Clinician Report Preview Modal (Native Capacitor & Popup-Blocked Fallback) */}
+      <ModalDialog
+        open={doctorReportHtml !== null}
+        title="Clinician / OB-GYN Summary"
+        subtitle="Preview on-device or share/save to Files"
+        onClose={() => setDoctorReportHtml(null)}
+        footer={
+          <>
+            <button type="button" className="btn-secondary" onClick={() => setDoctorReportHtml(null)}>
+              Close
+            </button>
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={async () => {
+                if (!doctorReportHtml) return;
+                const ok = await shareDoctorReportHtml(doctorReportHtml, today);
+                if (ok) showToast('Clinician summary exported.');
+              }}
+            >
+              Share / Save Report
+            </button>
+          </>
+        }
+      >
+        {doctorReportHtml ? (
+          <iframe
+            srcDoc={doctorReportHtml}
+            title="Clinician Summary Preview"
+            style={{
+              width: '100%',
+              height: '62vh',
+              border: '1px solid var(--color-border-subtle)',
+              borderRadius: 12,
+              background: '#FFFFFF',
+            }}
+          />
+        ) : null}
+      </ModalDialog>
 
       {toast ? (
         <div className="toast" role="status" aria-live="polite">

@@ -29,6 +29,69 @@ export function generatePartnerCode(length = 6): string {
   return out;
 }
 
+/**
+ * Generates a 128-bit CSPRNG E2EE secret (22-char URL-safe Base64) shared ONLY via
+ * URL #hash fragment or QR code — never transmitted to Cloudflare KV or CDN logs.
+ */
+export function generateSyncKey(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+export function formatPartnerPairingToken(code: string, syncKey?: string): string {
+  const cleanCode = code.trim().toUpperCase();
+  const cleanKey = syncKey?.trim();
+  return cleanKey ? `${cleanCode}.${cleanKey}` : cleanCode;
+}
+
+export function buildPartnerInviteUrl(
+  code: string,
+  syncKey?: string,
+  baseUrl = 'https://jee1vk.github.io/lunacycle-app/',
+): string {
+  const normalizedBase = baseUrl.replace(/#.*$/, '');
+  return `${normalizedBase}#partner=${formatPartnerPairingToken(code, syncKey)}`;
+}
+
+export function parsePartnerPairingInput(
+  raw: string,
+): { code: string; syncKey?: string } | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  let candidate = trimmed;
+
+  // Extract from full URL or #partner=... / ?partner=... fragment/query
+  const hashMatch = trimmed.match(/[#?&]partner=([^\s&#]+)/i) ?? trimmed.match(/^partner=([^\s&#]+)/i);
+  if (hashMatch) {
+    try {
+      candidate = decodeURIComponent(hashMatch[1]).trim();
+    } catch {
+      candidate = hashMatch[1].trim();
+    }
+  }
+
+  // Format 1: CODE.SYNCKEY (case-insensitive 6-char code + case-sensitive base64url syncKey)
+  const tokenMatch = candidate.match(/^([A-Za-z0-9]{6})\.([A-Za-z0-9_-]{16,64})$/);
+  if (tokenMatch) {
+    return {
+      code: tokenMatch[1].toUpperCase(),
+      syncKey: tokenMatch[2],
+    };
+  }
+
+  // Format 2: Legacy 6-character Partner Code
+  const legacyClean = candidate.replace(/\s+/g, '').toUpperCase();
+  if (/^[A-Z0-9]{6}$/.test(legacyClean)) {
+    return { code: legacyClean };
+  }
+
+  return null;
+}
+
 export function generateWriteSecret(): string {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
@@ -76,8 +139,12 @@ async function derivePartnerKey(
   code: string,
   pin: string | undefined,
   salt: Uint8Array<ArrayBuffer>,
+  syncKey?: string,
 ): Promise<CryptoKey> {
-  const secret = `lunacycle-e2ee:${code.trim().toUpperCase()}:${(pin ?? '').trim()}`;
+  const cleanKey = syncKey?.trim();
+  const secret = cleanKey
+    ? `lunacycle-e2ee-v2:${code.trim().toUpperCase()}:${cleanKey}:${(pin ?? '').trim()}`
+    : `lunacycle-e2ee:${code.trim().toUpperCase()}:${(pin ?? '').trim()}`;
   const keyMaterial = await crypto.subtle.importKey(
     'raw',
     new TextEncoder().encode(secret),
@@ -98,6 +165,7 @@ export async function encryptPartnerSnapshot(
   snapshot: PartnerSnapshot,
   code: string,
   pin?: string,
+  syncKey?: string,
 ): Promise<PartnerE2eeEnvelope> {
   const salt = new Uint8Array(new ArrayBuffer(16));
   const iv = new Uint8Array(new ArrayBuffer(12));
@@ -105,7 +173,7 @@ export async function encryptPartnerSnapshot(
   crypto.getRandomValues(iv);
 
   const { writeSecret, pinHash, ...sensitive } = snapshot;
-  const key = await derivePartnerKey(code, pin, salt);
+  const key = await derivePartnerKey(code, pin, salt, syncKey);
   const plaintext = new TextEncoder().encode(JSON.stringify(sensitive));
   const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plaintext);
 
@@ -127,11 +195,12 @@ export async function decryptPartnerSnapshot(
   envelope: PartnerE2eeEnvelope,
   code: string,
   pin?: string,
+  syncKey?: string,
 ): Promise<PartnerSnapshot> {
   const salt = fromBase64(envelope.saltBase64);
   const iv = fromBase64(envelope.ivBase64);
   const ciphertext = fromBase64(envelope.ciphertextBase64);
-  const key = await derivePartnerKey(code, pin, salt);
+  const key = await derivePartnerKey(code, pin, salt, syncKey);
   const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
   return JSON.parse(new TextDecoder().decode(plaintext)) as PartnerSnapshot;
 }
@@ -152,6 +221,7 @@ export function createDefaultPartnerShareConfig(): PartnerShareConfig {
   return {
     enabled: false,
     code: generatePartnerCode(6),
+    syncKey: generateSyncKey(),
     writeSecret: generateWriteSecret(),
     profileLabel: 'My Cycle',
     syncServerUrl: DEFAULT_PARTNER_SYNC_URL,
@@ -530,8 +600,13 @@ export async function pushPartnerSnapshot(
     return { ok: false, error: 'No sync relay URL configured.' };
   }
   try {
-    // End-to-End Encrypt on-device before uploading — Cloudflare KV only ever sees ciphertext
-    const encryptedEnvelope = await encryptPartnerSnapshot(snapshot, config.code, config.pin);
+    // End-to-End Encrypt on-device using 128-bit syncKey (+ optional PIN) before uploading
+    const encryptedEnvelope = await encryptPartnerSnapshot(
+      snapshot,
+      config.code,
+      config.pin,
+      config.syncKey,
+    );
     const res = await fetch(`${baseUrl}/sync/${encodeURIComponent(config.code.toUpperCase())}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -571,10 +646,15 @@ export async function fetchPartnerSnapshot(
     }
     if (isPartnerE2eeEnvelope(data)) {
       try {
-        const decrypted = await decryptPartnerSnapshot(data, watch.code, watch.pin);
+        const decrypted = await decryptPartnerSnapshot(data, watch.code, watch.pin, watch.syncKey);
         return { snapshot: decrypted };
       } catch {
-        return { error: 'Unable to decrypt snapshot — check Partner Code and PIN.', pinRequired: true };
+        return {
+          error: watch.syncKey
+            ? 'Unable to decrypt snapshot — check Pairing Key and PIN.'
+            : 'Full Pairing Key (#partner=CODE.KEY or QR scan) or PIN required to decrypt.',
+          pinRequired: true,
+        };
       }
     }
     return { snapshot: data as unknown as PartnerSnapshot };
@@ -607,13 +687,14 @@ export async function encryptPartnerCareThread(
   thread: PartnerCareThread,
   code: string,
   pin?: string,
+  syncKey?: string,
 ): Promise<PartnerE2eeEnvelope> {
   const salt = new Uint8Array(new ArrayBuffer(16));
   const iv = new Uint8Array(new ArrayBuffer(12));
   crypto.getRandomValues(salt);
   crypto.getRandomValues(iv);
 
-  const key = await derivePartnerKey(code, pin, salt);
+  const key = await derivePartnerKey(code, pin, salt, syncKey);
   const plaintext = new TextEncoder().encode(JSON.stringify(thread));
   const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plaintext);
 
@@ -633,11 +714,12 @@ export async function decryptPartnerCareThread(
   envelope: PartnerE2eeEnvelope,
   code: string,
   pin?: string,
+  syncKey?: string,
 ): Promise<PartnerCareThread> {
   const salt = fromBase64(envelope.saltBase64);
   const iv = fromBase64(envelope.ivBase64);
   const ciphertext = fromBase64(envelope.ciphertextBase64);
-  const key = await derivePartnerKey(code, pin, salt);
+  const key = await derivePartnerKey(code, pin, salt, syncKey);
   const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
   const parsed = JSON.parse(new TextDecoder().decode(plaintext)) as PartnerCareThread | PartnerCarePing;
   if ('pings' in parsed && Array.isArray(parsed.pings)) {
@@ -655,16 +737,18 @@ export async function encryptPartnerCarePing(
   ping: PartnerCarePing,
   code: string,
   pin?: string,
+  syncKey?: string,
 ): Promise<PartnerE2eeEnvelope> {
-  return encryptPartnerCareThread({ pings: [ping], updatedAt: ping.sentAt }, code, pin);
+  return encryptPartnerCareThread({ pings: [ping], updatedAt: ping.sentAt }, code, pin, syncKey);
 }
 
 export async function decryptPartnerCarePing(
   envelope: PartnerE2eeEnvelope,
   code: string,
   pin?: string,
+  syncKey?: string,
 ): Promise<PartnerCarePing> {
-  const thread = await decryptPartnerCareThread(envelope, code, pin);
+  const thread = await decryptPartnerCareThread(envelope, code, pin, syncKey);
   return thread.pings[0];
 }
 
@@ -672,6 +756,7 @@ async function fetchCareThreadInternal(
   baseUrl: string,
   code: string,
   pin: string | undefined,
+  syncKey: string | undefined,
   headers: Record<string, string>,
 ): Promise<{ ok: boolean; thread?: PartnerCareThread }> {
   const res = await fetch(`${baseUrl}/care/${encodeURIComponent(code.toUpperCase())}`, {
@@ -688,10 +773,12 @@ async function fetchCareThreadInternal(
     return { ok: false };
   }
   try {
-    const thread = await decryptPartnerCareThread(raw, code, pin);
+    const thread = await decryptPartnerCareThread(raw, code, pin, syncKey);
     return { ok: true, thread };
   } catch {
-    return { ok: false };
+    // Authorized HTTP 200 response whose old care thread was encrypted with a rotated PIN:
+    // cleanly reset to an empty thread so new care pings/reactions never brick for 7 days.
+    return { ok: true, thread: { pings: [], updatedAt: new Date().toISOString() } };
   }
 }
 
@@ -701,7 +788,7 @@ export async function fetchCareThreadForPrimary(
   const baseUrl = config.syncServerUrl.trim().replace(/\/+$/, '');
   if (!baseUrl || !config.enabled) return { ok: false };
   try {
-    return await fetchCareThreadInternal(baseUrl, config.code, config.pin, {
+    return await fetchCareThreadInternal(baseUrl, config.code, config.pin, config.syncKey, {
       'X-LunaCycle-Write-Secret': config.writeSecret,
     });
   } catch {
@@ -719,6 +806,7 @@ export async function fetchCareThreadForPartner(
       baseUrl,
       watch.code,
       watch.pin,
+      watch.syncKey,
       watch.pinHash ? { 'X-LunaCycle-Pin': watch.pinHash } : {},
     );
   } catch {
@@ -754,7 +842,12 @@ export async function pushPartnerCarePing(
       pings: [ping, ...existingPings].slice(0, 5),
       updatedAt: ping.sentAt,
     };
-    const envelope = await encryptPartnerCareThread(nextThread, watch.code, watch.pin);
+    const envelope = await encryptPartnerCareThread(
+      nextThread,
+      watch.code,
+      watch.pin,
+      watch.syncKey,
+    );
     const res = await fetch(`${baseUrl}/care/${encodeURIComponent(watch.code.toUpperCase())}`, {
       method: 'PUT',
       headers: {
@@ -806,7 +899,12 @@ export async function sendPrimaryCareRequestOrReaction(
     }
 
     const nextThread: PartnerCareThread = { pings: nextPings, updatedAt: nowIso };
-    const envelope = await encryptPartnerCareThread(nextThread, config.code, config.pin);
+    const envelope = await encryptPartnerCareThread(
+      nextThread,
+      config.code,
+      config.pin,
+      config.syncKey,
+    );
     const res = await fetch(`${baseUrl}/care/${encodeURIComponent(config.code.toUpperCase())}`, {
       method: 'PUT',
       headers: {

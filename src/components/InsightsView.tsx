@@ -1,4 +1,4 @@
-import { Activity, AlertCircle, FileText, Thermometer } from 'lucide-react';
+import { Activity, AlertCircle, BookOpen, FileText, Thermometer } from 'lucide-react';
 import { SYMPTOM_LABEL_MAP } from '../engine/catalog';
 import {
   classifyDate,
@@ -7,6 +7,7 @@ import {
   computePhaseSymptomInsights,
   formatTemp,
 } from '../engine/cycleEngine';
+import { PHYSICIAN_CONSULTATION_NOTICE } from '../engine/medicalSources';
 import { compareDates, formatShortDate } from '../engine/temporal';
 import type { CycleStats, LunaData } from '../types';
 import { ArticleShelf } from './PartnerDiscoverSection';
@@ -16,6 +17,7 @@ interface InsightsViewProps {
   stats: CycleStats;
   today: string;
   onExportDoctorPdf: () => void;
+  onOpenMedicalSources?: () => void;
 }
 
 export function InsightsView({
@@ -23,6 +25,7 @@ export function InsightsView({
   stats,
   today,
   onExportDoctorPdf,
+  onOpenMedicalSources,
 }: InsightsViewProps) {
   const phaseInsights = computePhaseSymptomInsights(data.logs, stats, data.settings, today);
   const clinicalFlags = computeClinicalHealthFlags(data.logs, stats);
@@ -132,21 +135,36 @@ export function InsightsView({
         </section>
       ) : null}
 
-      {/* Doctor Report Quick Action */}
-      <section className="card-subtle" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-        <div>
-          <strong style={{ fontSize: '0.92rem' }}>Clinician / OB-GYN Summary</strong>
-          <p className="section-caption">Generate a clean printable PDF summary of your cycles &amp; symptoms.</p>
+      {/* Doctor Report & Clinical Citations Quick Actions */}
+      <section className="card-subtle" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <div>
+            <strong style={{ fontSize: '0.92rem' }}>Clinician / OB-GYN Summary</strong>
+            <p className="section-caption">Generate a printable PDF summary of your cycles &amp; symptoms. {PHYSICIAN_CONSULTATION_NOTICE}</p>
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={onExportDoctorPdf}
+              style={{ flexShrink: 0 }}
+            >
+              <FileText size={16} />
+              PDF Report
+            </button>
+            {onOpenMedicalSources ? (
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={onOpenMedicalSources}
+                style={{ flexShrink: 0 }}
+              >
+                <BookOpen size={16} />
+                Medical Sources
+              </button>
+            ) : null}
+          </div>
         </div>
-        <button
-          type="button"
-          className="btn-secondary"
-          onClick={onExportDoctorPdf}
-          style={{ flexShrink: 0 }}
-        >
-          <FileText size={16} />
-          PDF Report
-        </button>
       </section>
 
       {/* Cycle Length History Chart */}

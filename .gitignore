@@ -9,10 +9,22 @@ pnpm-debug.log*
 node_modules
 dist
 dist-ssr
-android
-*.apk
-*.jks
 *.local
+
+# Native Build Outputs & Signing Secrets (NEVER commit keystores or bundles)
+*.apk
+*.aab
+*.jks
+*.p12
+*.keystore
+keystore.properties
+local.properties
+android/.gradle
+android/build
+android/app/build
+android/capacitor-cordova-android-plugins/build
+ios/App/Pods
+ios/App/build
 
 # Editor directories and files
 .vscode/*

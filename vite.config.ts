@@ -7,6 +7,16 @@ export default defineConfig({
   build: {
     target: 'esnext',
     sourcemap: false,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules/react') || id.includes('node_modules/lucide-react')) {
+            return 'vendor';
+          }
+          return undefined;
+        },
+      },
+    },
   },
   test: {
     environment: 'node',

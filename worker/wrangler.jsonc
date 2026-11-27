@@ -3,10 +3,7 @@
   "main": "partner-relay.js",
   "compatibility_date": "2026-11-23",
   "observability": {
-    "enabled": true,
-    "traces": {
-      "enabled": true
-    }
+    "enabled": false
   },
   "kv_namespaces": [
     {

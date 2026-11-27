@@ -33,6 +33,10 @@ import {
   SANITARY_PRODUCTS,
 } from '../engine/hygieneTimer';
 import { getUiStrings } from '../engine/i18n';
+import {
+  PHYSICIAN_CONSULTATION_NOTICE,
+  WELLNESS_MEDICAL_DISCLAIMER,
+} from '../engine/medicalSources';
 import type { ActiveReminder } from '../engine/reminders';
 import {
   addDays,
@@ -309,7 +313,7 @@ export function TodayView({
           </button>
         </div>
 
-        {/* First-time Onboarding Shortcuts */}
+        {/* First-time Onboarding Shortcuts + Physician Consultation Notice */}
         {!stats.hasLoggedPeriods && summary.mode !== 'pregnancy' ? (
           <div className="card-subtle" style={{ width: '100%', textAlign: 'left' }}>
             <p style={{ margin: '0 0 10px', fontSize: '0.84rem', color: 'var(--color-text-secondary)' }}>
@@ -325,6 +329,9 @@ export function TodayView({
                 Load Sample Cycles
               </button>
             </div>
+            <p className="field-hint" style={{ marginTop: 10, marginBottom: 0 }}>
+              <strong>Medical Notice:</strong> {WELLNESS_MEDICAL_DISCLAIMER} {PHYSICIAN_CONSULTATION_NOTICE}
+            </p>
           </div>
         ) : null}
       </section>
@@ -681,6 +688,9 @@ export function TodayView({
               </button>
             ))}
           </div>
+          <p className="field-hint" style={{ marginTop: 8, marginBottom: 0 }}>
+            {WELLNESS_MEDICAL_DISCLAIMER}
+          </p>
         </section>
       ) : null}
 
@@ -843,7 +853,7 @@ export function TodayView({
       </section>
 
       <p className="disclaimer-note">
-        Predictions are estimates based on your personal logs and are not intended for medical diagnosis or contraception.
+        {WELLNESS_MEDICAL_DISCLAIMER} {PHYSICIAN_CONSULTATION_NOTICE} Clinical references (ACOG, WHO, NIH, Mayo Clinic) are available in Settings.
       </p>
 
       <ModalDialog

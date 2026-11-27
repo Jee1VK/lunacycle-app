@@ -59,7 +59,7 @@ export async function enableBiometricForVault(
   disguiseMode: boolean,
 ): Promise<{ ok: boolean; error?: string }> {
   if (!Capacitor.isNativePlatform()) {
-    return { ok: false, error: 'Biometric unlock is only available inside the Android APK.' };
+    return { ok: false, error: 'Biometric unlock is only available inside the installed mobile app.' };
   }
   try {
     await NativeBiometric.verifyIdentity({

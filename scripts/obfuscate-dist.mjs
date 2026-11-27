@@ -8,9 +8,10 @@ if (!fs.existsSync(assetsDir)) {
   process.exit(1);
 }
 
+// Obfuscate all proprietary app chunks (index-*.js & Capacitor web-*.js), skipping third-party vendor/polyfill chunks
 const files = fs
   .readdirSync(assetsDir)
-  .filter((f) => f.endsWith('.js') && f.startsWith('index-'));
+  .filter((f) => f.endsWith('.js') && (f.startsWith('index-') || f.startsWith('web-')));
 
 if (files.length === 0) {
   console.error('No primary index-*.js bundle found in dist/assets.');
@@ -20,24 +21,25 @@ if (files.length === 0) {
 for (const file of files) {
   const fullPath = path.join(assetsDir, file);
   const source = fs.readFileSync(fullPath, 'utf8');
+  const isMain = file.startsWith('index-');
   const result = JavaScriptObfuscator.obfuscate(source, {
     compact: true,
-    controlFlowFlattening: true,
-    controlFlowFlatteningThreshold: 0.25,
+    controlFlowFlattening: isMain,
+    controlFlowFlatteningThreshold: isMain ? 0.35 : 0,
     deadCodeInjection: false,
     identifierNamesGenerator: 'hexadecimal',
     renameGlobals: false,
-    selfDefending: true,
+    selfDefending: isMain,
     stringArray: true,
     stringArrayEncoding: ['base64'],
     stringArrayRotate: true,
     stringArrayShuffle: true,
     stringArrayThreshold: 0.75,
-    splitStrings: true,
+    splitStrings: isMain,
     splitStringsChunkLength: 10,
     numbersToExpressions: false,
     disableConsoleOutput: true,
-    domainLock: ['jee1vk.github.io', 'localhost', '127.0.0.1'],
+    domainLock: [],
   });
   fs.writeFileSync(fullPath, result.getObfuscatedCode(), 'utf8');
   console.log(`Obfuscated ${file} (${source.length} -> ${result.getObfuscatedCode().length} bytes)`);

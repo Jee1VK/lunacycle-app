@@ -206,8 +206,8 @@ export default {
         body = null;
       }
 
-      if (!body || typeof body !== 'object' || typeof body.writeSecret !== 'string' || body.writeSecret.length < 16) {
-        return json({ error: 'Invalid payload' }, 400);
+      if (!body || typeof body !== 'object' || body.e2ee !== true || typeof body.writeSecret !== 'string' || body.writeSecret.length < 16) {
+        return json({ error: 'Encrypted E2EE payload required' }, 400);
       }
 
       const existingRaw = await env.LUNACYCLE_SYNC.get(key);
@@ -252,7 +252,7 @@ export default {
           return json({ error: 'Invalid PIN', pinRequired: true }, 401);
         }
       }
-      const { writeSecret: _omit, pinHash: _omitPin, ...publicSnapshot } = stored;
+      const { writeSecret: _omit, pinHash: _omitPin, syncKey: _omitKey, ...publicSnapshot } = stored;
       return json(publicSnapshot, 200);
     }
 

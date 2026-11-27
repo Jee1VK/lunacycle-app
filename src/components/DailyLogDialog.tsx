@@ -235,6 +235,9 @@ export function DailyLogDialog({
         <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
           <input
             type="text"
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
             className="input-control"
             style={{ minHeight: 40, fontSize: '0.84rem' }}
             placeholder="Add custom symptom (e.g. Migraine aura)"
@@ -290,6 +293,9 @@ export function DailyLogDialog({
         <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
           <input
             type="text"
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
             className="input-control"
             style={{ minHeight: 40, fontSize: '0.84rem' }}
             placeholder="Add custom mood (e.g. Focused)"
@@ -434,6 +440,9 @@ export function DailyLogDialog({
       <label className="field-group">
         <span className="field-label">Private Notes</span>
         <textarea
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
           className="input-control textarea-control"
           placeholder="Optional notes for yourself or your clinician..."
           value={draft.notes}

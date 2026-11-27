@@ -10,11 +10,15 @@ import { createInitialData, DEFAULT_SETTINGS } from '../types';
 const DB_NAME = 'lunacycle_private_db';
 const DB_VERSION = 1;
 const STORE_NAME = 'vault';
-const KEY_DATA = 'luna_data';
-const KEY_PIN = 'luna_pin_config';
-const KEY_PARTNER_SHARE = 'luna_partner_share';
-const KEY_PARTNER_WATCH = 'luna_partner_watch';
-const KEY_PARTNER_SNAPSHOT = 'luna_partner_snapshot';
+
+export const VAULT_KEYS = {
+  DEVICE_KEY: 'luna_device_wrap_key_v1',
+  DATA: 'luna_data',
+  PIN: 'luna_pin_config',
+  PARTNER_SHARE: 'luna_partner_share',
+  PARTNER_WATCH: 'luna_partner_watch',
+  PARTNER_SNAPSHOT: 'luna_partner_snapshot',
+} as const;
 
 const PBKDF2_ITERATIONS = 120_000;
 
@@ -24,6 +28,13 @@ export interface EncryptedEnvelope {
   kdf: 'PBKDF2-SHA256';
   iterations: number;
   saltBase64: string;
+  ivBase64: string;
+  ciphertextBase64: string;
+}
+
+export interface DeviceEncryptedRecord {
+  deviceEncrypted: true;
+  v: 1;
   ivBase64: string;
   ciphertextBase64: string;
 }
@@ -164,6 +175,17 @@ export function isEncryptedEnvelope(val: unknown): val is EncryptedEnvelope {
   );
 }
 
+export function isDeviceEncryptedRecord(val: unknown): val is DeviceEncryptedRecord {
+  if (!val || typeof val !== 'object') return false;
+  const obj = val as Record<string, unknown>;
+  return (
+    obj.deviceEncrypted === true &&
+    obj.v === 1 &&
+    typeof obj.ivBase64 === 'string' &&
+    typeof obj.ciphertextBase64 === 'string'
+  );
+}
+
 export function sanitizeLunaData(raw: Partial<LunaData> | null | undefined): LunaData {
   const base = createInitialData();
   if (!raw || typeof raw !== 'object') return base;
@@ -218,7 +240,14 @@ export function sanitizeLunaData(raw: Partial<LunaData> | null | undefined): Lun
   };
 }
 
-// --- IndexedDB Private Vault (avoids storing sensitive health logs in localStorage) ---
+// --- IndexedDB Private Vault (Day-1 Automatic 256-bit AES-GCM Encryption at Rest) ---
+
+const memoryFallbackVault = new Map<string, unknown>();
+let cachedDeviceKeyPromise: Promise<CryptoKey> | null = null;
+
+function hasIndexedDb(): boolean {
+  return typeof indexedDB !== 'undefined';
+}
 
 function openVaultDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -235,6 +264,9 @@ function openVaultDb(): Promise<IDBDatabase> {
 }
 
 async function idbGet<T>(key: string): Promise<T | undefined> {
+  if (!hasIndexedDb()) {
+    return memoryFallbackVault.get(key) as T | undefined;
+  }
   const db = await openVaultDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readonly');
@@ -245,6 +277,10 @@ async function idbGet<T>(key: string): Promise<T | undefined> {
 }
 
 async function idbSet<T>(key: string, value: T): Promise<void> {
+  if (!hasIndexedDb()) {
+    memoryFallbackVault.set(key, value);
+    return;
+  }
   const db = await openVaultDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
@@ -255,6 +291,8 @@ async function idbSet<T>(key: string, value: T): Promise<void> {
 }
 
 async function idbClearAll(): Promise<void> {
+  memoryFallbackVault.clear();
+  if (!hasIndexedDb()) return;
   const db = await openVaultDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
@@ -264,57 +302,189 @@ async function idbClearAll(): Promise<void> {
   });
 }
 
+/**
+ * Inspects the raw underlying record in the vault (used by security unit tests to
+ * verify zero plaintext health data or secrets exist at rest even before setting a PIN).
+ */
+export async function inspectRawVaultEntry(key: string): Promise<unknown> {
+  return idbGet(key);
+}
+
+function isCryptoKeyLike(val: unknown): val is CryptoKey {
+  return Boolean(
+    val &&
+      typeof val === 'object' &&
+      'type' in (val as Record<string, unknown>) &&
+      'algorithm' in (val as Record<string, unknown>),
+  );
+}
+
+async function getOrCreateDeviceKey(): Promise<CryptoKey> {
+  if (!cachedDeviceKeyPromise) {
+    cachedDeviceKeyPromise = (async () => {
+      const stored = await idbGet<CryptoKey | { rawKeyBase64: string }>(VAULT_KEYS.DEVICE_KEY);
+      if (isCryptoKeyLike(stored)) {
+        return stored;
+      }
+      if (stored && typeof stored === 'object' && typeof stored.rawKeyBase64 === 'string') {
+        const rawBytes = base64ToBytes(stored.rawKeyBase64);
+        return crypto.subtle.importKey('raw', rawBytes, { name: 'AES-GCM', length: 256 }, false, [
+          'encrypt',
+          'decrypt',
+        ]);
+      }
+
+      // Prefer non-extractable Web Crypto CryptoKey cloned directly into IndexedDB
+      try {
+        const nonExtractableKey = await crypto.subtle.generateKey(
+          { name: 'AES-GCM', length: 256 },
+          false,
+          ['encrypt', 'decrypt'],
+        );
+        await idbSet(VAULT_KEYS.DEVICE_KEY, nonExtractableKey);
+        return nonExtractableKey;
+      } catch {
+        // Fallback if a minimal WebView/shim cannot structured-clone CryptoKey
+        const raw = new Uint8Array(new ArrayBuffer(32));
+        crypto.getRandomValues(raw);
+        await idbSet(VAULT_KEYS.DEVICE_KEY, { rawKeyBase64: bytesToBase64(raw) });
+        return crypto.subtle.importKey('raw', raw, { name: 'AES-GCM', length: 256 }, false, [
+          'encrypt',
+          'decrypt',
+        ]);
+      }
+    })().catch((err) => {
+      cachedDeviceKeyPromise = null;
+      throw err;
+    });
+  }
+  return cachedDeviceKeyPromise;
+}
+
+async function wrapWithDeviceKey(payload: unknown): Promise<DeviceEncryptedRecord> {
+  const key = await getOrCreateDeviceKey();
+  const iv = new Uint8Array(new ArrayBuffer(12));
+  crypto.getRandomValues(iv);
+  const plaintext = new TextEncoder().encode(JSON.stringify(payload));
+  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plaintext);
+  return {
+    deviceEncrypted: true,
+    v: 1,
+    ivBase64: bytesToBase64(iv),
+    ciphertextBase64: bytesToBase64(new Uint8Array(ciphertext)),
+  };
+}
+
+async function unwrapWithDeviceKey<T>(
+  stored: unknown,
+): Promise<{ value: T | undefined; wasDeviceEncrypted: boolean }> {
+  if (stored === undefined || stored === null) {
+    return { value: undefined, wasDeviceEncrypted: false };
+  }
+  if (isDeviceEncryptedRecord(stored)) {
+    const key = await getOrCreateDeviceKey();
+    const iv = base64ToBytes(stored.ivBase64);
+    const ciphertext = base64ToBytes(stored.ciphertextBase64);
+    const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
+    const parsed = JSON.parse(new TextDecoder().decode(plaintext)) as T;
+    return { value: parsed, wasDeviceEncrypted: true };
+  }
+  // Legacy plaintext record migration path
+  return { value: stored as T, wasDeviceEncrypted: false };
+}
+
+async function saveVaultRecordEncrypted(key: string, value: unknown): Promise<void> {
+  if (value === null || value === undefined) {
+    await idbSet(key, null);
+    return;
+  }
+  const wrapped = await wrapWithDeviceKey(value);
+  await idbSet(key, wrapped);
+}
+
+async function loadVaultRecordEncrypted<T>(key: string): Promise<T | null> {
+  const raw = await idbGet<unknown>(key);
+  if (raw === undefined || raw === null) return null;
+  const { value, wasDeviceEncrypted } = await unwrapWithDeviceKey<T>(raw);
+  if (value === undefined || value === null) return null;
+  if (!wasDeviceEncrypted) {
+    // Seamlessly upgrade legacy unencrypted vault record to AES-256-GCM at rest
+    await saveVaultRecordEncrypted(key, value);
+  }
+  return value;
+}
+
 export async function loadPinConfig(): Promise<PinLockConfig | null> {
-  const cfg = await idbGet<PinLockConfig>(KEY_PIN);
+  const cfg = await loadVaultRecordEncrypted<PinLockConfig>(VAULT_KEYS.PIN);
   return cfg?.enabled ? cfg : null;
 }
 
 export async function savePinConfig(config: PinLockConfig | null): Promise<void> {
   if (!config) {
-    await idbSet(KEY_PIN, { enabled: false, saltBase64: '', verifierBase64: '', autoLockOnHide: true });
+    await saveVaultRecordEncrypted(VAULT_KEYS.PIN, {
+      enabled: false,
+      saltBase64: '',
+      verifierBase64: '',
+      autoLockOnHide: true,
+    });
     return;
   }
-  await idbSet(KEY_PIN, config);
+  await saveVaultRecordEncrypted(VAULT_KEYS.PIN, config);
 }
 
 export async function loadLunaData(activePin?: string): Promise<LunaData> {
-  const stored = await idbGet<LunaData | EncryptedEnvelope>(KEY_DATA);
-  if (!stored) return createInitialData();
-  if (isEncryptedEnvelope(stored)) {
+  const raw = await idbGet<unknown>(VAULT_KEYS.DATA);
+  if (!raw) return createInitialData();
+
+  const { value: inner, wasDeviceEncrypted } = await unwrapWithDeviceKey<
+    LunaData | EncryptedEnvelope
+  >(raw);
+  if (!inner) return createInitialData();
+
+  if (!wasDeviceEncrypted) {
+    await saveVaultRecordEncrypted(VAULT_KEYS.DATA, inner);
+  }
+
+  if (isEncryptedEnvelope(inner)) {
     if (!activePin) {
       throw new Error('Encrypted vault requires PIN to unlock.');
     }
-    return decryptPayload(stored, activePin);
+    return decryptPayload(inner, activePin);
   }
-  return sanitizeLunaData(stored);
+  return sanitizeLunaData(inner);
 }
 
 export async function saveLunaData(data: LunaData, activePin?: string): Promise<void> {
   const updated: LunaData = { ...data, updatedAt: new Date().toISOString() };
   if (activePin) {
-    const encrypted = await encryptPayload(updated, activePin);
-    await idbSet(KEY_DATA, encrypted);
+    // Double-layer protection: PBKDF2(PIN) inner envelope + 256-bit Device Key outer AES-GCM envelope
+    const pinEncrypted = await encryptPayload(updated, activePin);
+    await saveVaultRecordEncrypted(VAULT_KEYS.DATA, pinEncrypted);
   } else {
-    await idbSet(KEY_DATA, updated);
+    // Day-1 automatic AES-256-GCM encryption at rest even before a UI PIN is configured
+    await saveVaultRecordEncrypted(VAULT_KEYS.DATA, updated);
   }
 }
 
 export async function eraseAllVaultData(): Promise<void> {
+  cachedDeviceKeyPromise = null;
   await idbClearAll();
   try {
     if (typeof localStorage !== 'undefined') {
-      for (const key of Object.keys(localStorage)) {
-        if (key.startsWith('luna_')) localStorage.removeItem(key);
+      const keys = Object.keys(localStorage);
+      for (const key of keys) {
+        if (key.startsWith('luna_') || key.startsWith('CapacitorStorage')) {
+          localStorage.removeItem(key);
+        }
       }
+      localStorage.clear();
     }
   } catch {
     // Ignore storage access errors in strict privacy WebViews
   }
   try {
     if (typeof sessionStorage !== 'undefined') {
-      for (const key of Object.keys(sessionStorage)) {
-        if (key.startsWith('luna_')) sessionStorage.removeItem(key);
-      }
+      sessionStorage.clear();
     }
   } catch {
     // Ignore storage access errors in strict privacy WebViews
@@ -322,25 +492,55 @@ export async function eraseAllVaultData(): Promise<void> {
 }
 
 export async function loadPartnerShareConfigFromVault(): Promise<PartnerShareConfig | null> {
-  return (await idbGet<PartnerShareConfig>(KEY_PARTNER_SHARE)) ?? null;
+  const cfg = await loadVaultRecordEncrypted<PartnerShareConfig>(VAULT_KEYS.PARTNER_SHARE);
+  if (!cfg) return null;
+  // Migrate legacy localStorage 18+ consent or dismissed ping into encrypted vault if present
+  try {
+    if (typeof localStorage !== 'undefined') {
+      if (localStorage.getItem('luna_partner_18plus_consent') === '1') {
+        cfg.adultSyncConsent = true;
+        localStorage.removeItem('luna_partner_18plus_consent');
+      }
+      const legacyDismissed = localStorage.getItem('luna_dismissed_care_ping_id');
+      if (legacyDismissed && !cfg.dismissedCarePingId) {
+        cfg.dismissedCarePingId = legacyDismissed;
+        localStorage.removeItem('luna_dismissed_care_ping_id');
+      }
+    }
+  } catch {
+    // Ignore
+  }
+  return cfg;
 }
 
 export async function savePartnerShareConfigToVault(cfg: PartnerShareConfig): Promise<void> {
-  await idbSet(KEY_PARTNER_SHARE, cfg);
+  await saveVaultRecordEncrypted(VAULT_KEYS.PARTNER_SHARE, cfg);
 }
 
 export async function loadPartnerWatchConfigFromVault(): Promise<PartnerWatchConfig | null> {
-  return (await idbGet<PartnerWatchConfig | null>(KEY_PARTNER_WATCH)) ?? null;
+  const cfg = await loadVaultRecordEncrypted<PartnerWatchConfig>(VAULT_KEYS.PARTNER_WATCH);
+  try {
+    if (typeof localStorage !== 'undefined') {
+      for (const k of Object.keys(localStorage)) {
+        if (k.startsWith('luna_partner_carekit_')) {
+          localStorage.removeItem(k);
+        }
+      }
+    }
+  } catch {
+    // Ignore
+  }
+  return cfg;
 }
 
 export async function savePartnerWatchConfigToVault(cfg: PartnerWatchConfig | null): Promise<void> {
-  await idbSet(KEY_PARTNER_WATCH, cfg);
+  await saveVaultRecordEncrypted(VAULT_KEYS.PARTNER_WATCH, cfg);
 }
 
 export async function loadCachedPartnerSnapshotFromVault(): Promise<PartnerSnapshot | null> {
-  return (await idbGet<PartnerSnapshot | null>(KEY_PARTNER_SNAPSHOT)) ?? null;
+  return loadVaultRecordEncrypted<PartnerSnapshot>(VAULT_KEYS.PARTNER_SNAPSHOT);
 }
 
 export async function saveCachedPartnerSnapshotToVault(snap: PartnerSnapshot | null): Promise<void> {
-  await idbSet(KEY_PARTNER_SNAPSHOT, snap);
+  await saveVaultRecordEncrypted(VAULT_KEYS.PARTNER_SNAPSHOT, snap);
 }

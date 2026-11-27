@@ -145,10 +145,25 @@ export function dispatchGentleBrowserNotification(
   title: string,
   body: string,
   disguiseMode: boolean,
+  showLockScreenDetails = false,
+  customNotificationText = '',
 ): void {
   if (getNotificationSupport() !== 'granted') return;
-  const safeTitle = disguiseMode ? 'Daily Notes Reminder' : title;
-  const safeBody = disguiseMode ? 'You have a scheduled note check-in.' : body;
+  const custom = customNotificationText.trim();
+  const safeTitle = disguiseMode
+    ? 'Daily Notes Reminder'
+    : custom
+      ? 'LunaCycle'
+      : showLockScreenDetails
+        ? title
+        : 'LunaCycle';
+  const safeBody = disguiseMode
+    ? custom || 'You have a scheduled note check-in.'
+    : custom
+      ? custom
+      : showLockScreenDetails
+        ? body
+        : 'You have a private scheduled check-in.';
   new Notification(safeTitle, {
     body: safeBody,
     tag: 'lunacycle-reminder',

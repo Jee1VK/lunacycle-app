@@ -1,7 +1,7 @@
 /**
- * True Native Android OS Local Notifications via @capacitor/local-notifications.
- * Safely no-ops on web browsers while scheduling real OS-level notifications
- * inside the installed LunaCycle Android APK so reminders fire even when closed.
+ * True Native Android & iOS Local Notifications via @capacitor/local-notifications.
+ * Defaults to VISIBILITY_PRIVATE (0) and discreet generic text on lock screens so
+ * period, ovulation, fertility, and pill alerts never leak on locked screens or smartwatches.
  */
 
 import { Capacitor } from '@capacitor/core';
@@ -31,21 +31,33 @@ const ID_PARTNER_FERTILE = 2003;
 const ID_PARTNER_DAILY = 2004;
 const ID_PARTNER_TEST = 2005;
 
-const PILL_ALARM_CHANNEL_ID = 'lunacycle_pill_alarm';
+const PRIVATE_REMINDER_CHANNEL_ID = 'lunacycle_reminders_private';
+const PILL_ALARM_CHANNEL_ID = 'lunacycle_pill_alarm_private';
+const LEGACY_PUBLIC_PILL_CHANNEL_ID = 'lunacycle_pill_alarm';
 
-async function ensurePillAlarmChannel(): Promise<void> {
+async function ensurePrivateNotificationChannels(): Promise<void> {
   if (!isNativeNotificationRuntime()) return;
   try {
+    // Remove legacy public-visibility channel if present from earlier builds
+    await LocalNotifications.deleteChannel({ id: LEGACY_PUBLIC_PILL_CHANNEL_ID }).catch(() => {});
+    await LocalNotifications.createChannel({
+      id: PRIVATE_REMINDER_CHANNEL_ID,
+      name: 'Private Cycle & Wellness Reminders',
+      description: 'Lock-screen redacted private wellness reminders',
+      importance: 3,
+      visibility: 0, // VISIBILITY_PRIVATE — hides sensitive content on locked screen
+      vibration: true,
+    });
     await LocalNotifications.createChannel({
       id: PILL_ALARM_CHANNEL_ID,
-      name: 'Daily Pill Alarm',
-      description: 'High-priority daily pill time and refill reminders',
+      name: 'Daily Pill Reminder',
+      description: 'High-priority daily pill pack time and refill reminders',
       importance: 5,
-      visibility: 1,
+      visibility: 0, // VISIBILITY_PRIVATE — hides sensitive content on locked screen
       vibration: true,
     });
   } catch {
-    // Ignore on platforms where channels are unsupported
+    // Ignore on platforms where Android channels are unsupported (e.g. iOS)
   }
 }
 
@@ -57,26 +69,65 @@ export async function requestNativeNotificationPermission(): Promise<boolean> {
   if (!isNativeNotificationRuntime()) return false;
   try {
     const perm = await LocalNotifications.requestPermissions();
+    if (perm.display === 'granted') {
+      await ensurePrivateNotificationChannels();
+    }
     return perm.display === 'granted';
   } catch {
     return false;
   }
 }
 
-function getSafeText(
+export function getSafeNotificationText(
   disguiseMode: boolean,
+  showLockScreenDetails: boolean,
   customText: string,
   defaultTitle: string,
   defaultBody: string,
+  kind: 'general' | 'pill' = 'general',
 ): { title: string; body: string } {
   const custom = customText.trim();
-  if (custom) {
-    return { title: disguiseMode ? 'Daily Notes' : 'LunaCycle', body: custom };
-  }
   if (disguiseMode) {
-    return { title: 'Daily Notes', body: 'You have a scheduled note check-in.' };
+    return {
+      title: 'Daily Notes',
+      body: custom || 'You have a scheduled note check-in.',
+    };
+  }
+  if (custom) {
+    return { title: 'LunaCycle', body: custom };
+  }
+  if (!showLockScreenDetails) {
+    return kind === 'pill'
+      ? { title: 'LunaCycle Reminder', body: 'Time for your scheduled daily reminder.' }
+      : { title: 'LunaCycle', body: 'You have a private scheduled check-in.' };
   }
   return { title: defaultTitle, body: defaultBody };
+}
+
+export async function cancelAllNativeNotifications(): Promise<void> {
+  if (!isNativeNotificationRuntime()) return;
+  try {
+    const pending = await LocalNotifications.getPending();
+    const pendingIds = (pending.notifications ?? []).map((n) => ({ id: n.id }));
+    const staticIds = [
+      { id: ID_PERIOD },
+      { id: ID_DAILY_LOG },
+      { id: ID_PILL },
+      { id: ID_HYGIENE },
+      { id: ID_PILL_REFILL },
+      { id: ID_PILL_TEST },
+      { id: ID_PILL_SNOOZE },
+      { id: ID_PARTNER_PMS },
+      { id: ID_PARTNER_TOMORROW },
+      { id: ID_PARTNER_FERTILE },
+      { id: ID_PARTNER_DAILY },
+      { id: ID_PARTNER_TEST },
+      ...Array.from({ length: 32 }, (_, i) => ({ id: ID_PILL_SLOT_BASE + i })),
+    ];
+    await LocalNotifications.cancel({ notifications: [...pendingIds, ...staticIds] });
+  } catch {
+    // Ignore native cancel errors
+  }
 }
 
 export async function syncNativeScheduledNotifications(
@@ -89,6 +140,8 @@ export async function syncNativeScheduledNotifications(
     const status = await LocalNotifications.checkPermissions();
     if (status.display !== 'granted') return;
 
+    await ensurePrivateNotificationChannels();
+
     const pillSlotCancels = Array.from({ length: 32 }, (_, i) => ({ id: ID_PILL_SLOT_BASE + i }));
     await LocalNotifications.cancel({
       notifications: [
@@ -96,6 +149,7 @@ export async function syncNativeScheduledNotifications(
         { id: ID_DAILY_LOG },
         { id: ID_PILL },
         { id: ID_PILL_REFILL },
+        { id: ID_PILL_SNOOZE },
         ...pillSlotCancels,
       ],
     });
@@ -115,6 +169,7 @@ export async function syncNativeScheduledNotifications(
     }> = [];
 
     const { reminders, disguiseMode, pillPack } = data.settings;
+    const showDetails = Boolean(reminders.showLockScreenDetails);
 
     // 1. Period Approaching (9:00 AM local time N days before predicted period)
     if (reminders.periodEnabled && summary.mode !== 'pregnancy' && summary.nextPeriodDate) {
@@ -122,13 +177,19 @@ export async function syncNativeScheduledNotifications(
       const [y, m, d] = targetIso.split('-').map(Number);
       const atDate = new Date(y, m - 1, d, 9, 0, 0);
       if (atDate.getTime() > Date.now() + 60_000) {
-        const msg = getSafeText(
+        const msg = getSafeNotificationText(
           disguiseMode,
+          showDetails,
           reminders.customNotificationText,
           'LunaCycle Reminder',
           `Period expected in ${reminders.periodBeforeDays} days.`,
         );
-        toSchedule.push({ id: ID_PERIOD, ...msg, schedule: { at: atDate } });
+        toSchedule.push({
+          id: ID_PERIOD,
+          ...msg,
+          channelId: PRIVATE_REMINDER_CHANNEL_ID,
+          schedule: { at: atDate },
+        });
       }
     }
 
@@ -136,8 +197,9 @@ export async function syncNativeScheduledNotifications(
     if (reminders.dailyLogEnabled) {
       const [hour, minute] = reminders.dailyLogTime.split(':').map(Number);
       if (Number.isFinite(hour) && Number.isFinite(minute)) {
-        const msg = getSafeText(
+        const msg = getSafeNotificationText(
           disguiseMode,
+          showDetails,
           reminders.customNotificationText,
           'Daily Check-In',
           'Take 10 seconds to log how you feel today.',
@@ -145,14 +207,14 @@ export async function syncNativeScheduledNotifications(
         toSchedule.push({
           id: ID_DAILY_LOG,
           ...msg,
+          channelId: PRIVATE_REMINDER_CHANNEL_ID,
           schedule: { on: { hour, minute }, repeats: true },
         });
       }
     }
 
-    // 3. Daily Pill Alarms (MedClock-style 7-day exact AlarmManager slots for 1..4 daily times) & Refill Reminder
+    // 3. Daily Pill Pack Reminders (7-day exact AlarmManager slots for 1..4 daily times) & Refill Reminder
     if (pillPack.enabled && !data.settings.simpleMode) {
-      await ensurePillAlarmChannel();
       const pillStatus = computePillPackStatus(pillPack, summary.today, latestPeriodStartDate);
       const reminderTimes = getPillReminderTimes(pillPack);
 
@@ -165,6 +227,7 @@ export async function syncNativeScheduledNotifications(
         for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
           const targetIso = addDays(summary.today, dayOffset);
           if (targetIso < pillStatus.effectiveStartDate) continue;
+          if (pillPack.takenDates.includes(targetIso)) continue;
           const [ty, tm, td] = targetIso.split('-').map(Number);
 
           for (const timeStr of reminderTimes) {
@@ -174,11 +237,13 @@ export async function syncNativeScheduledNotifications(
             const fireAt = new Date(ty, tm - 1, td, hour, minute, 0, 0);
             if (fireAt.getTime() <= now.getTime() + 2000) continue;
 
-            const msg = getSafeText(
+            const msg = getSafeNotificationText(
               disguiseMode,
+              showDetails,
               reminders.customNotificationText,
-              'Daily Pill Alarm',
-              `Time to take your daily dose (${doseLabel}) — ${timeStr}.`,
+              'Daily Pill Reminder',
+              `Time for your daily pill pack reminder (${doseLabel}) — ${timeStr}.`,
+              'pill',
             );
             toSchedule.push({
               id: ID_PILL_SLOT_BASE + slotIdx,
@@ -205,11 +270,13 @@ export async function syncNativeScheduledNotifications(
         );
         if (refillAt.getTime() > Date.now() + 60_000) {
           const threshold = pillPack.refillThresholdDays ?? 5;
-          const msg = getSafeText(
+          const msg = getSafeNotificationText(
             disguiseMode,
+            showDetails,
             reminders.customNotificationText,
             'Pill Pack Refill Reminder',
             `Only ${threshold} ${threshold === 1 ? 'day' : 'days'} left in your pack — remember to refill soon.`,
+            'pill',
           );
           toSchedule.push({
             id: ID_PILL_REFILL,
@@ -233,6 +300,7 @@ export async function scheduleNativeHygieneNotification(
   timer: ActiveHygieneTimer | null,
   disguiseMode: boolean,
   customText: string,
+  showLockScreenDetails = false,
 ): Promise<void> {
   if (!isNativeNotificationRuntime()) return;
   try {
@@ -241,18 +309,27 @@ export async function scheduleNativeHygieneNotification(
 
     const status = await LocalNotifications.checkPermissions();
     if (status.display !== 'granted') return;
+    await ensurePrivateNotificationChannels();
 
     const atDate = new Date(timer.endsAt);
     if (atDate.getTime() <= Date.now() + 5_000) return;
 
-    const msg = getSafeText(
+    const msg = getSafeNotificationText(
       disguiseMode,
+      showLockScreenDetails,
       customText,
       'Hygiene Change Reminder',
       `Your ${timer.durationHours}h ${timer.product} timer is up.`,
     );
     await LocalNotifications.schedule({
-      notifications: [{ id: ID_HYGIENE, ...msg, schedule: { at: atDate } }],
+      notifications: [
+        {
+          id: ID_HYGIENE,
+          ...msg,
+          channelId: PRIVATE_REMINDER_CHANNEL_ID,
+          schedule: { at: atDate },
+        },
+      ],
     });
   } catch {
     // Ignore
@@ -264,6 +341,7 @@ export async function syncNativePartnerNotifications(
   watchConfig: PartnerWatchConfig | null,
   disguiseMode: boolean,
   customText: string,
+  showLockScreenDetails = false,
 ): Promise<void> {
   if (!isNativeNotificationRuntime()) return;
   try {
@@ -279,11 +357,13 @@ export async function syncNativePartnerNotifications(
     if (!snapshot || !watchConfig?.alertsOnThisPhone) return;
     const status = await LocalNotifications.checkPermissions();
     if (status.display !== 'granted') return;
+    await ensurePrivateNotificationChannels();
 
     const toSchedule: Array<{
       id: number;
       title: string;
       body: string;
+      channelId?: string;
       schedule: { at?: Date; on?: { hour: number; minute: number }; repeats?: boolean };
     }> = [];
 
@@ -298,28 +378,36 @@ export async function syncNativePartnerNotifications(
       const [y, m, d] = alert.scheduleDate.split('-').map(Number);
       const atDate = new Date(y, m - 1, d, alert.hour ?? 9, alert.minute ?? 0, 0);
       if (atDate.getTime() > Date.now() + 60_000) {
-        const msg = getSafeText(disguiseMode, customText, alert.title, alert.body);
+        const msg = getSafeNotificationText(
+          disguiseMode,
+          showLockScreenDetails,
+          customText,
+          alert.title,
+          alert.body,
+        );
         toSchedule.push({
           id: idMap[alert.id] ?? ID_PARTNER_PMS,
           ...msg,
+          channelId: PRIVATE_REMINDER_CHANNEL_ID,
           schedule: { at: atDate },
         });
       }
     }
 
-    // Daily evening partner check-in reminder
     const checkinTime = watchConfig.dailyCheckinTime || '18:30';
     const [hour, minute] = checkinTime.split(':').map(Number);
     if (Number.isFinite(hour) && Number.isFinite(minute)) {
-      const msg = getSafeText(
+      const msg = getSafeNotificationText(
         disguiseMode,
+        showLockScreenDetails,
         customText,
         `Evening check-in for ${snapshot.profileLabel}`,
-        'Open LunaCycle Partner tab to see her phase, comfort cues, and how to support her tonight.',
+        'Open LunaCycle Partner tab to see comfort cues and how to support tonight.',
       );
       toSchedule.push({
         id: ID_PARTNER_DAILY,
         ...msg,
+        channelId: PRIVATE_REMINDER_CHANNEL_ID,
         schedule: { on: { hour, minute }, repeats: true },
       });
     }
@@ -337,8 +425,15 @@ export async function sendTestPartnerCareNotification(
   body: string,
   disguiseMode: boolean,
   customText: string,
+  showLockScreenDetails = false,
 ): Promise<boolean> {
-  const msg = getSafeText(disguiseMode, customText, title, body);
+  const msg = getSafeNotificationText(
+    disguiseMode,
+    showLockScreenDetails,
+    customText,
+    title,
+    body,
+  );
   if (isNativeNotificationRuntime()) {
     try {
       const granted = await requestNativeNotificationPermission();
@@ -348,6 +443,7 @@ export async function sendTestPartnerCareNotification(
           {
             id: ID_PARTNER_TEST,
             ...msg,
+            channelId: PRIVATE_REMINDER_CHANNEL_ID,
             schedule: { at: new Date(Date.now() + 1500) },
           },
         ],
@@ -374,19 +470,22 @@ export async function sendTestPillAlarmNotification(
   pillsPerDay: number,
   disguiseMode: boolean,
   customText: string,
+  showLockScreenDetails = false,
 ): Promise<boolean> {
   const doseLabel = pillsPerDay === 1 ? '1 pill' : `${pillsPerDay} pills`;
-  const msg = getSafeText(
+  const msg = getSafeNotificationText(
     disguiseMode,
+    showLockScreenDetails,
     customText,
-    'Daily Pill Alarm (Test)',
-    `Time to take your daily dose (${doseLabel}).`,
+    'Daily Pill Reminder (Test)',
+    `Time for your daily pill pack reminder (${doseLabel}).`,
+    'pill',
   );
   if (isNativeNotificationRuntime()) {
     try {
       const granted = await requestNativeNotificationPermission();
       if (!granted) return false;
-      await ensurePillAlarmChannel();
+      await ensurePrivateNotificationChannels();
       await LocalNotifications.schedule({
         notifications: [
           {
@@ -421,18 +520,21 @@ export async function scheduleNativePillSnooze(
   pillsPerDay: number,
   disguiseMode: boolean,
   customText: string,
+  showLockScreenDetails = false,
 ): Promise<void> {
   if (!isNativeNotificationRuntime()) return;
   try {
     const status = await LocalNotifications.checkPermissions();
     if (status.display !== 'granted') return;
-    await ensurePillAlarmChannel();
+    await ensurePrivateNotificationChannels();
     const doseLabel = pillsPerDay === 1 ? '1 pill' : `${pillsPerDay} pills`;
-    const msg = getSafeText(
+    const msg = getSafeNotificationText(
       disguiseMode,
+      showLockScreenDetails,
       customText,
-      'Snoozed Pill Alarm',
-      `Time to take your daily dose (${doseLabel}).`,
+      'Snoozed Pill Reminder',
+      `Time for your daily pill pack reminder (${doseLabel}).`,
+      'pill',
     );
     await LocalNotifications.schedule({
       notifications: [

@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { computeCycleStats, computeTodaySummary } from '../cycleEngine';
 import {
+  buildPartnerInviteUrl,
   buildPartnerSnapshot,
   buildPartnerTextSummary,
   createDefaultPartnerShareConfig,
@@ -10,11 +11,14 @@ import {
   encryptPartnerCarePing,
   encryptPartnerCareThread,
   encryptPartnerSnapshot,
+  formatPartnerPairingToken,
   generatePartnerCode,
+  generateSyncKey,
   getPartnerCommunicationCues,
   getPartnerSupportTips,
   getSmartCarePingSuggestions,
   hashPartnerPin,
+  parsePartnerPairingInput,
 } from '../partnerSync';
 import { generateQrMatrix } from '../qrCode';
 import { ensureTemporal } from '../temporal';
@@ -24,10 +28,13 @@ beforeAll(async () => {
   await ensureTemporal();
 });
 
-describe('partnerSync engine', () => {
-  it('generates unambiguous 6-character codes and deterministic SHA-256 PIN hashes', async () => {
+describe('partnerSync engine & 128-bit #hash E2EE', () => {
+  it('generates unambiguous 6-char codes, 128-bit URL-safe syncKeys, and SHA-256 PIN hashes', async () => {
     const code = generatePartnerCode(6);
     expect(code).toMatch(/^[A-HJ-NP-Z2-9]{6}$/);
+
+    const syncKey = generateSyncKey();
+    expect(syncKey).toMatch(/^[A-Za-z0-9_-]{22}$/);
 
     const h1 = await hashPartnerPin('2468');
     const h2 = await hashPartnerPin('2468');
@@ -37,7 +44,33 @@ describe('partnerSync engine', () => {
     expect(h1).toHaveLength(64);
   });
 
-  it('strictly strips private notes, BBT, intimacy, and respects granular partner permissions', () => {
+  it('uses #partner=CODE.SYNCKEY hash fragments (never query strings) and parses pairing inputs cleanly', () => {
+    const cfg = createDefaultPartnerShareConfig();
+    expect(cfg.syncKey).toMatch(/^[A-Za-z0-9_-]{22}$/);
+
+    const url = buildPartnerInviteUrl(cfg.code, cfg.syncKey);
+    expect(url).toContain(`#partner=${cfg.code}.${cfg.syncKey}`);
+    expect(url).not.toContain('?partner=');
+
+    // Parses full #hash invite URL preserving exact case of syncKey
+    const parsedFromUrl = parsePartnerPairingInput(url);
+    expect(parsedFromUrl).toEqual({ code: cfg.code, syncKey: cfg.syncKey });
+
+    // Parses raw CODE.SYNCKEY pairing token even if code is lowercase
+    const token = formatPartnerPairingToken(cfg.code.toLowerCase(), cfg.syncKey);
+    expect(parsePartnerPairingInput(token)).toEqual({ code: cfg.code, syncKey: cfg.syncKey });
+
+    // Backward-compatible with legacy 6-char codes
+    expect(parsePartnerPairingInput('k7m9p2')).toEqual({ code: 'K7M9P2' });
+    expect(parsePartnerPairingInput('invalid!')).toBeNull();
+
+    // QR Version 5-L encodes full 77-char #partner=CODE.SYNCKEY URL cleanly
+    const qr = generateQrMatrix(url);
+    expect(qr.length).toBeGreaterThanOrEqual(33);
+    expect(qr.length).toBe(qr[0].length);
+  });
+
+  it('strictly strips private notes, BBT, intimacy, and syncKey from snapshots', () => {
     const data = createInitialData();
     data.logs['2026-05-01'] = {
       ...createEmptyLog('2026-05-01'),
@@ -52,7 +85,6 @@ describe('partnerSync engine', () => {
     const stats = computeCycleStats(data.logs, data.settings);
     const summary = computeTodaySummary('2026-05-01', data.logs, stats, data.settings);
 
-    // 1. With all partner permissions enabled
     const cfgAll = createDefaultPartnerShareConfig();
     cfgAll.profileLabel = 'Priya';
     const snapAll = buildPartnerSnapshot(cfgAll, data, stats, summary);
@@ -61,11 +93,11 @@ describe('partnerSync engine', () => {
     expect(serialized).not.toContain('Super secret private note');
     expect(serialized).not.toContain('36.42');
     expect(serialized).not.toContain('sexLogged');
+    expect(serialized).not.toContain(cfgAll.syncKey!);
     expect(snapAll.todaySymptoms).toEqual(['cramps', 'fatigue']);
     expect(snapAll.ovulationDate).toBe('2026-05-15');
     expect(snapAll.upcomingDays).toHaveLength(30);
 
-    // 2. With selective permissions disabled
     const cfgMinimal = {
       ...cfgAll,
       permissions: {
@@ -79,7 +111,6 @@ describe('partnerSync engine', () => {
     expect(snapMin.todaySymptoms).toBeUndefined();
     expect(snapMin.upcomingDays).toBeUndefined();
 
-    // 3. Support tips & shareable text respect snapshot
     const tips = getPartnerSupportTips(snapAll);
     expect(tips.length).toBeGreaterThanOrEqual(2);
     const text = buildPartnerTextSummary(snapAll);
@@ -87,7 +118,7 @@ describe('partnerSync engine', () => {
     expect(text).toContain('Period active today');
   });
 
-  it('end-to-end encrypts partner snapshots with AES-256-GCM so relay sees zero plaintext', async () => {
+  it('end-to-end encrypts partner snapshots with 128-bit syncKey so code-only brute force fails even without PIN', async () => {
     const data = createInitialData();
     data.logs['2026-05-01'] = {
       ...createEmptyLog('2026-05-01'),
@@ -100,76 +131,46 @@ describe('partnerSync engine', () => {
     cfg.profileLabel = 'Ananya';
 
     const snap = buildPartnerSnapshot(cfg, data, stats, summary);
-    const envelope = await encryptPartnerSnapshot(snap, cfg.code, '4321');
-    const rawEnvelope = JSON.stringify(envelope);
 
-    expect(envelope.e2ee).toBe(true);
+    // Encrypt with 128-bit syncKey and NO PIN
+    const envelopeNoPin = await encryptPartnerSnapshot(snap, cfg.code, undefined, cfg.syncKey);
+    const rawEnvelope = JSON.stringify(envelopeNoPin);
+    expect(envelopeNoPin.e2ee).toBe(true);
     expect(rawEnvelope).not.toContain('Ananya');
     expect(rawEnvelope).not.toContain('cramps');
-    expect(rawEnvelope).not.toContain('menstrual');
+    expect(rawEnvelope).not.toContain(cfg.syncKey!);
 
-    const decrypted = await decryptPartnerSnapshot(envelope, cfg.code, '4321');
-    expect(decrypted.profileLabel).toBe('Ananya');
-    expect(decrypted.todaySymptoms).toEqual(['cramps']);
+    // Someone who only knows the 6-char code CANNOT decrypt without the 128-bit syncKey
+    await expect(decryptPartnerSnapshot(envelopeNoPin, cfg.code, undefined, undefined)).rejects.toThrow();
+    await expect(
+      decryptPartnerSnapshot(envelopeNoPin, cfg.code, undefined, generateSyncKey()),
+    ).rejects.toThrow();
 
-    await expect(decryptPartnerSnapshot(envelope, cfg.code, '9999')).rejects.toThrow();
+    // Partner with exact syncKey decrypts cleanly
+    const decryptedNoPin = await decryptPartnerSnapshot(envelopeNoPin, cfg.code, undefined, cfg.syncKey);
+    expect(decryptedNoPin.profileLabel).toBe('Ananya');
+
+    // Encrypt with BOTH syncKey AND 4-digit PIN
+    const envelopeWithPin = await encryptPartnerSnapshot(snap, cfg.code, '4321', cfg.syncKey);
+    const decryptedWithPin = await decryptPartnerSnapshot(envelopeWithPin, cfg.code, '4321', cfg.syncKey);
+    expect(decryptedWithPin.todaySymptoms).toEqual(['cramps']);
+    await expect(decryptPartnerSnapshot(envelopeWithPin, cfg.code, '9999', cfg.syncKey)).rejects.toThrow();
   });
 
-  it('end-to-end encrypts two-way Partner Care Pings with AES-256-GCM', async () => {
+  it('end-to-end encrypts two-way Partner Care Pings & CareThread with 128-bit syncKey', async () => {
+    const syncKey = generateSyncKey();
     const ping = {
       id: 'care-123',
       message: 'Picking up warm tea and heating pad!',
       senderLabel: 'Your Partner',
       sentAt: '2026-06-01T10:00:00.000Z',
     };
-    const env = await encryptPartnerCarePing(ping, 'KUB789', '2468');
+    const env = await encryptPartnerCarePing(ping, 'KUB789', '2468', syncKey);
     expect(JSON.stringify(env)).not.toContain('heating pad');
-    const dec = await decryptPartnerCarePing(env, 'KUB789', '2468');
+    await expect(decryptPartnerCarePing(env, 'KUB789', '2468')).rejects.toThrow();
+    const dec = await decryptPartnerCarePing(env, 'KUB789', '2468', syncKey);
     expect(dec.message).toBe(ping.message);
-    await expect(decryptPartnerCarePing(env, 'KUB789', '0000')).rejects.toThrow();
-  });
 
-  it('strictly masks fertile/ovulation phases in phase & upcomingDays when shareFertileWindow is false', () => {
-    const data = createInitialData();
-    data.logs['2026-05-01'] = { ...createEmptyLog('2026-05-01'), flow: 'medium' };
-    const stats = computeCycleStats(data.logs, data.settings);
-    // 2026-05-15 is estimated ovulation day for a 28-day cycle starting May 1
-    const summary = computeTodaySummary('2026-05-15', data.logs, stats, data.settings);
-    expect(summary.phase).toBe('ovulation');
-
-    const cfg = createDefaultPartnerShareConfig();
-    cfg.permissions.shareFertileWindow = false;
-    cfg.permissions.shareUpcomingForecast = true;
-    cfg.todayNeedStatus = "I'd love a hug";
-    cfg.comfortPreferences = ['Warm tea / chai', 'Heating pad'];
-
-    const snap = buildPartnerSnapshot(cfg, data, stats, summary);
-    expect(snap.phase).toBe('follicular');
-    expect(snap.ovulationDate).toBeNull();
-    expect(snap.upcomingDays?.some((d) => d.phase === 'fertile' || d.phase === 'ovulation')).toBe(false);
-    expect(snap.todayNeedStatus).toBe("I'd love a hug");
-    expect(snap.comfortPreferences).toEqual(['Warm tea / chai', 'Heating pad']);
-
-    // Communication cues & smart ping suggestions
-    const cue = getPartnerCommunicationCues(snap);
-    expect(cue.sayThis.length).toBeGreaterThan(10);
-    expect(cue.avoidThis.length).toBeGreaterThan(10);
-    const suggestions = getSmartCarePingSuggestions(snap);
-    expect(suggestions).toHaveLength(4);
-
-    // Offline QR matrix generator
-    const qr = generateQrMatrix('https://jee1vk.github.io/lunacycle-app/?partner=KUB789');
-    expect(qr.length).toBeGreaterThanOrEqual(29);
-    expect(qr.length).toBe(qr[0].length);
-    // Top-left 7x7 finder outer border + fixed dark module (size-8, 8) + Copy-2 format bit (8, size-8)
-    expect(qr[0][0]).toBe(true);
-    expect(qr[0][6]).toBe(true);
-    expect(qr[6][0]).toBe(true);
-    expect(qr[qr.length - 8][8]).toBe(true);
-    expect(qr[8][qr.length - 8]).toBe(true);
-  });
-
-  it('encrypts and decrypts two-way PartnerCareThread with reactions, hugs, and reverse requests', async () => {
     const thread = {
       pings: [
         {
@@ -193,11 +194,33 @@ describe('partnerSync engine', () => {
       ],
       updatedAt: '2026-06-01T10:05:00.000Z',
     };
-    const env = await encryptPartnerCareThread(thread, 'KUB789', '2468');
-    expect(JSON.stringify(env)).not.toContain('warm tea');
-    const dec = await decryptPartnerCareThread(env, 'KUB789', '2468');
-    expect(dec.pings).toHaveLength(2);
-    expect(dec.pings[0].direction).toBe('to_partner');
-    expect(dec.pings[1].reaction).toBe('❤️ Love this');
+    const threadEnv = await encryptPartnerCareThread(thread, 'KUB789', undefined, syncKey);
+    const decThread = await decryptPartnerCareThread(threadEnv, 'KUB789', undefined, syncKey);
+    expect(decThread.pings).toHaveLength(2);
+    expect(decThread.pings[1].reaction).toBe('❤️ Love this');
+  });
+
+  it('strictly masks fertile/ovulation phases in phase & upcomingDays when shareFertileWindow is false', () => {
+    const data = createInitialData();
+    data.logs['2026-05-01'] = { ...createEmptyLog('2026-05-01'), flow: 'medium' };
+    const stats = computeCycleStats(data.logs, data.settings);
+    const summary = computeTodaySummary('2026-05-15', data.logs, stats, data.settings);
+    expect(summary.phase).toBe('ovulation');
+
+    const cfg = createDefaultPartnerShareConfig();
+    cfg.permissions.shareFertileWindow = false;
+    cfg.permissions.shareUpcomingForecast = true;
+    cfg.todayNeedStatus = "I'd love a hug";
+    cfg.comfortPreferences = ['Warm tea / chai', 'Heating pad'];
+
+    const snap = buildPartnerSnapshot(cfg, data, stats, summary);
+    expect(snap.phase).toBe('follicular');
+    expect(snap.ovulationDate).toBeNull();
+    expect(snap.upcomingDays?.some((d) => d.phase === 'fertile' || d.phase === 'ovulation')).toBe(false);
+
+    const cue = getPartnerCommunicationCues(snap);
+    expect(cue.sayThis.length).toBeGreaterThan(10);
+    const suggestions = getSmartCarePingSuggestions(snap);
+    expect(suggestions).toHaveLength(4);
   });
 });

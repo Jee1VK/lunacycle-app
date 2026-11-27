@@ -52,17 +52,20 @@ function rsComputeEcc(data: Uint8Array, ecLen: number): Uint8Array {
   return res;
 }
 
-// Version 1..4 (Level L, single EC block): [version, size, dataCodewords, ecCodewords, alignmentCenter]
+// Version 1..5 (Level L, single EC block): [version, size, dataCodewords, ecCodewords, alignmentCenter]
 const QR_VERSIONS: Array<[number, number, number, number, number]> = [
   [1, 21, 19, 7, 0],
   [2, 25, 34, 10, 18],
   [3, 29, 55, 15, 22],
   [4, 33, 80, 20, 26],
+  [5, 37, 108, 26, 30],
 ];
 
 export function generateQrMatrix(text: string): boolean[][] {
   const bytes = new TextEncoder().encode(text);
-  const spec = QR_VERSIONS.find(([, , dataCw]) => bytes.length + 2 <= dataCw) ?? QR_VERSIONS[3];
+  const spec =
+    QR_VERSIONS.find(([, , dataCw]) => bytes.length + 2 <= dataCw) ??
+    QR_VERSIONS[QR_VERSIONS.length - 1];
   const [, size, dataCw, ecCw, alignPos] = spec;
 
   // Build bitstream: Byte mode (0100) + 8-bit length + bytes + terminator + pad bytes

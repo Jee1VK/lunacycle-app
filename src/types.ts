@@ -125,6 +125,7 @@ export interface ReminderSettings {
   dailyLogEnabled: boolean;
   dailyLogTime: string; // HH:mm wall-clock time
   customNotificationText: string;
+  showLockScreenDetails?: boolean; // Default false -> discreet generic text on locked screens
 }
 
 export type ThemePreference = 'system' | 'light' | 'dark' | 'burgundy' | 'maroon' | 'custom';
@@ -252,26 +253,32 @@ export interface PartnerSharePermissions {
 export interface PartnerShareConfig {
   enabled: boolean;
   code: string;
+  syncKey?: string; // 128-bit random URL-safe base64 secret (never sent to relay; shared via #hash)
   writeSecret: string;
   profileLabel: string;
-  pin?: string; // Kept locally in IndexedDB to derive E2EE AES-GCM key
+  pin?: string; // Kept locally in encrypted IndexedDB vault to derive E2EE AES-GCM key
   pinHash?: string;
   syncServerUrl: string;
   permissions: PartnerSharePermissions;
   todayNeedStatus?: string; // 1-tap "What I need today" beacon
   comfortPreferences?: string[]; // Personal "What helps me" comfort list
+  adultSyncConsent?: boolean; // Stored inside encrypted IndexedDB vault
+  dismissedCarePingId?: string; // Stored inside encrypted IndexedDB vault
   lastSyncedAt?: string;
 }
 
 export interface PartnerWatchConfig {
   code: string;
-  pin?: string; // Kept locally in IndexedDB to decrypt E2EE snapshots
+  syncKey?: string; // 128-bit random URL-safe base64 secret parsed from #partner=CODE.SYNCKEY
+  pin?: string; // Kept locally in encrypted IndexedDB vault to decrypt E2EE snapshots
   pinHash?: string;
   syncServerUrl: string;
   partnerName?: string; // Sender name for Care Pings
   syncPartnerTheme?: boolean; // Automatically reflect primary user's chosen/custom theme (default true)
   alertsOnThisPhone: boolean;
   dailyCheckinTime?: string; // HH:mm evening partner check-in reminder
+  careKitCycleKey?: string;
+  careKitChecked?: string[];
   lastFetchedAt?: string;
 }
 
@@ -358,6 +365,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     dailyLogEnabled: false,
     dailyLogTime: '20:00',
     customNotificationText: '',
+    showLockScreenDetails: false,
   },
 };
 

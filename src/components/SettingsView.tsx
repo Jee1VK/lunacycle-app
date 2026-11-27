@@ -1,13 +1,18 @@
-import { useRef, useState, type ChangeEvent } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent } from 'react';
+import { Capacitor } from '@capacitor/core';
 import {
+  AlertTriangle,
   Bell,
+  BookOpen,
   Download,
+  ExternalLink,
   EyeOff,
   FileSpreadsheet,
   FileText,
   Fingerprint,
   Lock,
   RefreshCw,
+  Scale,
   ShieldCheck,
   Smartphone,
   Sparkles,
@@ -16,6 +21,11 @@ import {
   Upload,
 } from 'lucide-react';
 import { LANGUAGE_OPTIONS } from '../engine/i18n';
+import {
+  MEDICAL_CITATIONS,
+  PHYSICIAN_CONSULTATION_NOTICE,
+  WELLNESS_MEDICAL_DISCLAIMER,
+} from '../engine/medicalSources';
 import { getPillReminderTimes } from '../engine/hygieneTimer';
 import {
   isNativeNotificationRuntime,
@@ -68,6 +78,8 @@ interface SettingsViewProps {
   onLoadSampleData: () => void;
   onEraseAllData: () => Promise<void>;
   onTriggerTestPillAlarm?: () => void;
+  openMedicalSourcesSignal?: number;
+  openEncryptedExportSignal?: number;
   onNotify: (msg: string) => void;
 }
 
@@ -93,6 +105,8 @@ export function SettingsView({
   onLoadSampleData,
   onEraseAllData,
   onTriggerTestPillAlarm,
+  openMedicalSourcesSignal = 0,
+  openEncryptedExportSignal = 0,
   onNotify,
 }: SettingsViewProps) {
   const { settings } = data;
@@ -114,6 +128,24 @@ export function SettingsView({
 
   const [eraseDialogOpen, setEraseDialogOpen] = useState(false);
   const [privacyDialogOpen, setPrivacyDialogOpen] = useState(false);
+  const [medicalSourcesOpen, setMedicalSourcesOpen] = useState(false);
+  const [legalDocModal, setLegalDocModal] = useState<{ title: string; url: string } | null>(null);
+  const isIosNative = Capacitor.getPlatform() === 'ios';
+  const nativePlatformLabel = isIosNative ? 'iOS' : 'Android';
+  const keystoreLabel = isIosNative ? 'iOS Keychain' : 'Android Hardware Keystore';
+
+  useEffect(() => {
+    if (openMedicalSourcesSignal > 0) {
+      setMedicalSourcesOpen(true);
+    }
+  }, [openMedicalSourcesSignal]);
+
+  useEffect(() => {
+    if (openEncryptedExportSignal > 0) {
+      setExportPassphrase('');
+      setExportDialogOpen(true);
+    }
+  }, [openEncryptedExportSignal]);
 
   const [notifStatus, setNotifStatus] = useState(() => getNotificationSupport());
 
@@ -162,8 +194,8 @@ export function SettingsView({
       const granted = await requestNativeNotificationPermission();
       onNotify(
         granted
-          ? 'Native Android OS notifications enabled!'
-          : 'Permission denied. Enable notifications in Android App Settings.',
+          ? `Native ${nativePlatformLabel} notifications enabled!`
+          : `Permission denied. Enable notifications in ${nativePlatformLabel} App Settings.`,
       );
       return;
     }
@@ -599,17 +631,24 @@ export function SettingsView({
         </div>
       </section>
 
-      {/* Contraception, Birth Control Mode & Pill Pack (hidden in Simple / Teen Mode) */}
+      {/* Daily Pill Pack Reminder (hidden in Simple / Teen Mode) */}
       {!settings.simpleMode ? (
       <section className="card">
-        <h2 className="section-title">Contraception &amp; Pill Pack</h2>
-        <p className="section-caption" style={{ marginBottom: 12 }}>
-          Optional birth control mode, daily pill pack checklist, and LARC renewal tracking
+        <h2 className="section-title">Daily Pill Pack Reminder</h2>
+        <p className="section-caption" style={{ marginBottom: 10 }}>
+          Personal daily pill pack checklist, reminder alarms, and optional fertility estimate suppression
         </p>
+
+        <div className="reminder-item reminder-item--gentle" style={{ marginBottom: 12 }}>
+          <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 2 }} />
+          <p className="reminder-body" style={{ margin: 0 }}>
+            <strong>Wellness Notice:</strong> {WELLNESS_MEDICAL_DISCLAIMER}
+          </p>
+        </div>
 
         <label className="setting-row" htmlFor="bc-mode-switch">
           <div className="setting-label-wrap">
-            <span className="setting-title">Birth Control Mode</span>
+            <span className="setting-title">Pause Fertility &amp; Ovulation Estimates</span>
             <span className="setting-desc">
               Hides ovulation &amp; fertile window predictions across Today and Calendar
             </span>
@@ -625,9 +664,9 @@ export function SettingsView({
 
         <label className="setting-row" htmlFor="pill-pack-switch">
           <div className="setting-label-wrap">
-            <span className="setting-title">Daily Pill Pack Tracker</span>
+            <span className="setting-title">Daily Pill Pack Reminder</span>
             <span className="setting-desc">
-              Shows 28-day pill grid and streak on the Today screen
+              Shows 28-day pill checklist and streak on the Today screen
             </span>
           </div>
           <input
@@ -874,9 +913,9 @@ export function SettingsView({
 
             <label className="setting-row" htmlFor="pill-alarm-switch" style={{ paddingTop: 6 }}>
               <div className="setting-label-wrap">
-                <span className="setting-title">MedClock-Style Pill Alarm &amp; Notifications</span>
+                <span className="setting-title">Daily Pill Alarm &amp; Notifications</span>
                 <span className="setting-desc">
-                  Full-screen looping alarm with snooze + Android OS alerts even when closed
+                  Full-screen looping alarm with snooze + local device alerts even when closed
                 </span>
               </div>
               <input
@@ -987,6 +1026,7 @@ export function SettingsView({
                         settings.pillPack.pillsPerDay ?? 1,
                         settings.disguiseMode,
                         settings.reminders.customNotificationText,
+                        Boolean(settings.reminders.showLockScreenDetails),
                       );
                     }}
                   >
@@ -1072,27 +1112,45 @@ export function SettingsView({
           </h2>
         </div>
         <p className="section-caption" style={{ marginBottom: 10 }}>
-          Local-first IndexedDB storage with zero accounts, ads, or analytics. Network requests are only used for GitHub Pages OTA update checks and (if you opt in) end-to-end encrypted Partner Sync via Cloudflare Workers.
+          Day-1 automatic AES-256-GCM encrypted IndexedDB vault with zero accounts, ads, or analytics. Native builds run 100% locally offline; optional network requests occur only if an 18+ user enables end-to-end encrypted Partner Sync via Cloudflare Workers.
         </p>
-        <div style={{ marginBottom: 14 }}>
+        <div className="btn-row" style={{ marginBottom: 14 }}>
           <button
             type="button"
             className="btn-secondary"
-            style={{ minHeight: 44, fontSize: '0.84rem' }}
+            style={{ minHeight: 44, fontSize: '0.82rem' }}
             onClick={() => setPrivacyDialogOpen(true)}
           >
             <FileText size={15} />
-            Privacy Notice &amp; Legal (DPDP Act)
+            DPDP Privacy Summary
+          </button>
+          <button
+            type="button"
+            className="btn-secondary"
+            style={{ minHeight: 44, fontSize: '0.82rem' }}
+            onClick={() => setLegalDocModal({ title: 'Privacy Policy', url: './privacy.html' })}
+          >
+            <ExternalLink size={15} />
+            Privacy Policy
+          </button>
+          <button
+            type="button"
+            className="btn-secondary"
+            style={{ minHeight: 44, fontSize: '0.82rem' }}
+            onClick={() => setLegalDocModal({ title: 'Terms of Use', url: './terms.html' })}
+          >
+            <Scale size={15} />
+            Terms of Use
           </button>
         </div>
 
         <div className="setting-row">
           <div className="setting-label-wrap">
-            <span className="setting-title">4-Digit PIN &amp; At-Rest Encryption</span>
+            <span className="setting-title">4-Digit PIN &amp; Double-Layer Encryption</span>
             <span className="setting-desc">
               {pinConfig?.enabled
-                ? 'Active — vault is AES-GCM encrypted and locked on reopen'
-                : 'Protect logs with a 4-digit PIN and Web Crypto AES-GCM'}
+                ? 'Active — PBKDF2-SHA256 PIN + 256-bit device AES-GCM lock on reopen'
+                : 'Vault is AES-256-GCM encrypted at rest; add a 4-digit PIN to lock screen access'}
             </span>
           </div>
           {pinConfig?.enabled ? (
@@ -1126,7 +1184,7 @@ export function SettingsView({
               </span>
               <span className="setting-desc">
                 {pinConfig?.enabled
-                  ? 'Unlock your AES-GCM vault via Android Hardware Keystore'
+                  ? `Unlock your AES-GCM vault via ${keystoreLabel}`
                   : 'Set a 4-digit PIN above first to enable biometric unlock'}
               </span>
             </div>
@@ -1270,10 +1328,33 @@ export function SettingsView({
           />
         </label>
 
+        <label className="setting-row" htmlFor="rem-lockscreen-details">
+          <div className="setting-label-wrap">
+            <span className="setting-title">Show Detailed Text on Lock Screen</span>
+            <span className="setting-desc">
+              Off by default — notifications use VISIBILITY_PRIVATE and generic text so cycle &amp; pill details stay off locked screens
+            </span>
+          </div>
+          <input
+            id="rem-lockscreen-details"
+            type="checkbox"
+            checked={Boolean(settings.reminders.showLockScreenDetails)}
+            onChange={(e) =>
+              onUpdateSettings({
+                reminders: { ...settings.reminders, showLockScreenDetails: e.target.checked },
+              })
+            }
+            {...({ switch: '' } as Record<string, string>)}
+          />
+        </label>
+
         <label className="field-group" style={{ marginTop: 10 }}>
           <span className="field-label">Custom Discreet Notification Text (Optional)</span>
           <input
             type="text"
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
             className="input-control"
             placeholder="e.g. Remember your herbal tea"
             value={settings.reminders.customNotificationText}
@@ -1284,7 +1365,7 @@ export function SettingsView({
             }
           />
           <p className="field-hint">
-            Overrides Android OS notification body text so lock-screen alerts stay completely private.
+            Overrides OS notification body text so alerts stay completely private.
           </p>
         </label>
 
@@ -1293,7 +1374,7 @@ export function SettingsView({
             <p style={{ margin: '0 0 8px', fontSize: '0.8rem', color: 'var(--color-text-secondary)' }}>
               <strong>Why we ask:</strong>{' '}
               {isNativeNotificationRuntime()
-                ? 'Native Android notifications fire locally on your phone even when the app is closed — zero push servers.'
+                ? `Native ${nativePlatformLabel} notifications fire locally on your phone even when the app is closed — zero push servers.`
                 : 'Browser notifications are generated locally on your device — no push server ever receives your dates.'}
             </p>
             <button
@@ -1304,7 +1385,7 @@ export function SettingsView({
             >
               <Bell size={16} />
               {isNativeNotificationRuntime()
-                ? 'Enable Native Android OS Notifications'
+                ? `Enable Native ${nativePlatformLabel} Notifications`
                 : notifStatus === 'granted'
                   ? 'Browser Notifications Active'
                   : notifStatus === 'denied'
@@ -1402,13 +1483,35 @@ export function SettingsView({
         </div>
       </section>
 
-      {/* App Version & Over-The-Air (OTA) Live Updates */}
+      {/* Medical Sources & Clinical References (Apple Guideline 1.4.1 & Google Play Health) */}
+      <section className="card">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+          <BookOpen size={18} color="var(--color-brand-primary)" />
+          <h2 className="section-title" style={{ margin: 0 }}>
+            Medical Sources &amp; Clinical References
+          </h2>
+        </div>
+        <p className="section-caption" style={{ marginBottom: 10 }}>
+          {WELLNESS_MEDICAL_DISCLAIMER} {PHYSICIAN_CONSULTATION_NOTICE}
+        </p>
+        <button
+          type="button"
+          className="btn-secondary"
+          style={{ width: '100%' }}
+          onClick={() => setMedicalSourcesOpen(true)}
+        >
+          <BookOpen size={16} />
+          View Peer-Reviewed Citations (ACOG, WHO, NIH, Mayo Clinic)
+        </button>
+      </section>
+
+      {/* App Version & Updates */}
       <section className="card">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 4 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Smartphone size={18} color="var(--color-brand-primary)" />
             <h2 className="section-title" style={{ margin: 0 }}>
-              App Version &amp; Live OTA Updates
+              App Version &amp; Runtime
             </h2>
           </div>
           <span className="phase-badge phase-badge--follicular tabular">
@@ -1417,40 +1520,30 @@ export function SettingsView({
         </div>
         <p className="section-caption" style={{ marginBottom: 12 }}>
           {otaState.isNativeApk
-            ? 'Running inside the native Android APK with PWA-style Over-The-Air live updates enabled.'
-            : 'Running as an installable offline-first PWA with live Over-The-Air updates.'}
+            ? 'Running 100% locally from signed native app bundle (Airplane-Mode ready · zero startup CDN calls).'
+            : 'Running as an installable offline-first Web PWA.'}
         </p>
 
-        <div className="btn-row">
-          {otaState.updateAvailable ? (
-            <button type="button" className="btn-primary" onClick={onApplyOtaUpdate}>
-              <RefreshCw size={16} />
-              Install Live Update{otaState.latestVersion ? ` (v${otaState.latestVersion})` : ''}
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="btn-secondary"
-              disabled={otaState.checking}
-              onClick={onCheckOtaUpdate}
-            >
-              <RefreshCw size={16} />
-              {otaState.checking ? 'Checking…' : 'Check for Live Update'}
-            </button>
-          )}
-          {!otaState.isNativeApk ? (
-            <a
-              href="https://github.com/Jee1VK/lunacycle-app/releases/download/latest/LunaCycle.apk"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="btn-secondary"
-              style={{ textDecoration: 'none', flex: '1 1 140px' }}
-            >
-              <Download size={16} />
-              Download Android APK
-            </a>
-          ) : null}
-        </div>
+        {!otaState.isNativeApk ? (
+          <div className="btn-row">
+            {otaState.updateAvailable ? (
+              <button type="button" className="btn-primary" onClick={onApplyOtaUpdate}>
+                <RefreshCw size={16} />
+                Install Live Update{otaState.latestVersion ? ` (v${otaState.latestVersion})` : ''}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn-secondary"
+                disabled={otaState.checking}
+                onClick={onCheckOtaUpdate}
+              >
+                <RefreshCw size={16} />
+                {otaState.checking ? 'Checking…' : 'Check for Web Update'}
+              </button>
+            )}
+          </div>
+        ) : null}
       </section>
 
       {/* Set PIN Dialog */}
@@ -1475,6 +1568,9 @@ export function SettingsView({
           <input
             type="password"
             inputMode="numeric"
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
             maxLength={4}
             autoFocus
             className="input-control tabular"
@@ -1488,6 +1584,9 @@ export function SettingsView({
           <input
             type="password"
             inputMode="numeric"
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
             maxLength={4}
             className="input-control tabular"
             placeholder="••••"
@@ -1508,8 +1607,8 @@ export function SettingsView({
       {/* Export JSON Dialog */}
       <ModalDialog
         open={exportDialogOpen}
-        title="Export Local Backup"
-        subtitle="Add an optional passphrase to AES-GCM encrypt the backup file"
+        title="Export Local JSON Backup"
+        subtitle="Protect your exported file with AES-256-GCM passphrase encryption"
         onClose={() => setExportDialogOpen(false)}
         footer={
           <>
@@ -1524,25 +1623,37 @@ export function SettingsView({
                 setExportDialogOpen(false);
               }}
             >
-              Download Backup
+              {exportPassphrase.trim() ? 'Download Encrypted Backup' : 'Export Unencrypted JSON'}
             </button>
           </>
         }
       >
         <label className="field-group">
-          <span className="field-label">Encryption Passphrase (Optional)</span>
+          <span className="field-label">Encryption Passphrase (Strongly Recommended)</span>
           <input
             type="password"
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
             autoFocus
             className="input-control"
-            placeholder="Leave blank for plain JSON"
+            placeholder="Enter passphrase for AES-256-GCM encryption"
             value={exportPassphrase}
             onChange={(e) => setExportPassphrase(e.target.value)}
           />
-          <p className="field-hint">
-            Recommended if storing the backup in Google Drive, iCloud, or email.
-          </p>
         </label>
+        {!exportPassphrase.trim() ? (
+          <div className="reminder-item reminder-item--period">
+            <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 2 }} />
+            <p className="reminder-body" style={{ margin: 0 }}>
+              <strong>Unencrypted File Warning:</strong> Leaving the passphrase blank saves readable health logs to your Downloads folder. Enter a passphrase above if storing in Drive, iCloud, or email.
+            </p>
+          </div>
+        ) : (
+          <p className="field-hint">
+            Encrypted with PBKDF2-SHA256 (120,000 iterations) + AES-256-GCM. Keep your passphrase safe.
+          </p>
+        )}
       </ModalDialog>
 
       {/* Decrypt Imported Backup Dialog */}
@@ -1580,6 +1691,9 @@ export function SettingsView({
           <span className="field-label">Backup Passphrase</span>
           <input
             type="password"
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
             autoFocus
             className="input-control"
             value={importPassphrase}
@@ -1637,15 +1751,15 @@ export function SettingsView({
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: '0.84rem', color: 'var(--color-text-secondary)' }}>
           <div className="card-subtle">
-            <strong style={{ color: 'var(--color-text-primary)' }}>1. Local-First Data &amp; Network Disclosure</strong>
+            <strong style={{ color: 'var(--color-text-primary)' }}>1. Day-1 Encrypted Vault &amp; Network Disclosure</strong>
             <p style={{ margin: '4px 0 0' }}>
-              All cycle, symptom, mood, and pill logs stay strictly on your device in IndexedDB (optionally AES-256-GCM encrypted with your 4-digit PIN). LunaCycle has zero accounts, zero ads, and zero analytics. Outbound requests occur only for: (a) GitHub Pages OTA update checks (<code>version.json</code>), and (b) optional end-to-end encrypted Partner Sync via Cloudflare Workers KV (auto-deleted after 30 days for snapshots and 7 days for Care Pings).
+              All cycle, symptom, mood, pregnancy, and pill logs stay strictly on your device inside an IndexedDB vault encrypted at rest from Day 1 with 256-bit <code>AES-GCM</code> (plus an optional 4-digit PIN). LunaCycle has zero accounts, zero ads, and zero analytics. Native Android and iOS builds run 100% locally offline. Outbound network requests occur <strong>only</strong> if an adult (18+) user explicitly enables end-to-end encrypted Partner Sync via Cloudflare Workers KV (using a 128-bit <code>#partner</code> pairing key never sent to the server; auto-deleted after 30 days for snapshots and 7 days for Care Pings).
             </p>
           </div>
           <div className="card-subtle">
-            <strong style={{ color: 'var(--color-text-primary)' }}>2. Your Rights Under DPDP Act 2023</strong>
+            <strong style={{ color: 'var(--color-text-primary)' }}>2. Your Rights Under DPDP Act 2023 &amp; GDPR</strong>
             <p style={{ margin: '4px 0 0' }}>
-              You may withdraw Partner Sync consent at any time via <strong>Stop Sharing &amp; Wipe Relay Copy</strong>, export your data (JSON/CSV/PDF), or permanently erase all local and remote data via <strong>Erase All Data</strong>. You also have the right to escalate unresolved privacy grievances to the <strong>Data Protection Board of India (DPBI)</strong>.
+              You may withdraw Partner Sync consent at any time via <strong>Stop Sharing &amp; Wipe Relay Copy</strong>, export your data (Encrypted JSON / CSV / Doctor PDF), or permanently erase all local IndexedDB records, OS notifications, and remote relay ciphertext via <strong>Erase All Data</strong>. You also retain the right to escalate unresolved privacy complaints to the <strong>Data Protection Board of India (DPBI)</strong>.
             </p>
           </div>
           <div className="card-subtle">
@@ -1655,31 +1769,132 @@ export function SettingsView({
             </p>
           </div>
           <div className="card-subtle">
-            <strong style={{ color: 'var(--color-text-primary)' }}>4. General Wellness Notice (Non-SaMD)</strong>
+            <strong style={{ color: 'var(--color-text-primary)' }}>4. General Wellness Notice (CDSCO Non-SaMD &amp; PCPNDT Act)</strong>
             <p style={{ margin: '4px 0 0' }}>
-              LunaCycle is a personal self-tracking and wellness companion. It is not a medical device, does not diagnose or treat any condition, is not a contraceptive method, and contains zero fetal sex/gender prediction features (PCPNDT Act compliant).
+              {WELLNESS_MEDICAL_DISCLAIMER} {PHYSICIAN_CONSULTATION_NOTICE} LunaCycle contains zero fetal sex/gender prediction features (PCPNDT Act 1994 compliant).
             </p>
           </div>
           <div className="card-subtle">
             <strong style={{ color: 'var(--color-text-primary)' }}>5. Summary in Supported Indian Languages</strong>
             <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 4, lineHeight: 1.5 }}>
               <p lang="kn" style={{ margin: 0 }}>
-                <strong>ಕನ್ನಡ:</strong> ನಿಮ್ಮ ಎಲ್ಲಾ ಡೇಟಾ ನಿಮ್ಮ ಫೋನ್‌ನಲ್ಲಿ ಮಾತ್ರ ಸುರಕ್ಷಿತವಾಗಿರುತ್ತದೆ. ಪಾಲುದಾರರ ಹಂಚಿಕೆ ಐಚ್ಛಿಕ ಮತ್ತು ಎಂಡ್-ಟು-ಎಂಡ್ ಎನ್‌ಕ್ರಿಪ್ಟ್ ಆಗಿದೆ.
+                <strong>ಕನ್ನಡ:</strong> ನಿಮ್ಮ ಎಲ್ಲಾ ಡೇಟಾ ನಿಮ್ಮ ಫೋನ್‌ನಲ್ಲಿ ಮಾತ್ರ ಎನ್‌ಕ್ರಿಪ್ಟ್ ಆಗಿ ಸುರಕ್ಷಿತವಾಗಿರುತ್ತದೆ. ಪಾಲುದಾರರ ಹಂಚಿಕೆ ಐಚ್ಛಿಕ ಮತ್ತು ಎಂಡ್-ಟು-ಎಂಡ್ ಎನ್‌ಕ್ರಿಪ್ಟ್ ಆಗಿದೆ.
               </p>
               <p lang="hi" style={{ margin: 0 }}>
-                <strong>हिन्दी:</strong> आपका सारा डेटा केवल आपके फ़ोन में सुरक्षित रहता है। पार्टनर शेयरिंग वैकल्पिक और एंड-टू-एंड एन्क्रिप्टेड है।
+                <strong>हिन्दी:</strong> आपका सारा डेटा केवल आपके फ़ोन में एन्क्रिप्टेड और सुरक्षित रहता है। पार्टनर शेयरिंग वैकल्पिक और एंड-टू-एंड एन्क्रिप्टेड है।
               </p>
               <p lang="ta" style={{ margin: 0 }}>
-                <strong>தமிழ்:</strong> உங்கள் தரவு அனைத்தும் உங்கள் சாதனத்தில் மட்டுமே சேமிக்கப்படும். பார்ட்னர் பகிர்வு விருப்பத்திற்குரியது மற்றும் என்க்ரிப்ட் செய்யப்பட்டது.
+                <strong>தமிழ்:</strong> உங்கள் தரவு அனைத்தும் உங்கள் சாதனத்தில் மட்டுமே என்க்ரிப்ட் செய்யப்பட்டு சேமிக்கப்படும். பார்ட்னர் பகிர்வு விருப்பத்திற்குரியது.
               </p>
               <p lang="te" style={{ margin: 0 }}>
-                <strong>తెలుగు:</strong> మీ డేటా అంతా మీ ఫోన్‌లోనే సురక్షితంగా ఉంటుంది. పార్ట్‌నర్ షేరింగ్ ఐచ్ఛికం మరియు ఎండ్-టు-ఎండ్ ఎన్‌క్రిప్ట్ చేయబడింది.
+                <strong>తెలుగు:</strong> మీ డేటా అంతా మీ ఫోన్‌లోనే ఎన్‌క్రిప్ట్ చేయబడి సురక్షితంగా ఉంటుంది. పార్ట్‌నర్ షేరింగ్ ఐచ్ఛికం మరియు ఎండ్-టు-ఎండ్ ఎన్‌క్రిప్ట్ చేయబడింది.
               </p>
             </div>
           </div>
           <p className="field-hint">
-            Resident Grievance Officer contact details (24h acknowledgement / 15-day resolution SLA) will be published here prior to public app-store distribution.
+            Developer privacy &amp; support inquiries: tap{' '}
+            <button
+              type="button"
+              style={{ background: 'none', border: 'none', padding: 0, color: 'var(--color-brand-primary)', fontWeight: 600, cursor: 'pointer', textDecoration: 'underline' }}
+              onClick={() => {
+                setPrivacyDialogOpen(false);
+                setLegalDocModal({ title: 'Privacy Policy', url: './privacy.html' });
+              }}
+            >
+              Privacy Policy
+            </button>{' '}
+            or{' '}
+            <button
+              type="button"
+              style={{ background: 'none', border: 'none', padding: 0, color: 'var(--color-brand-primary)', fontWeight: 600, cursor: 'pointer', textDecoration: 'underline' }}
+              onClick={() => {
+                setPrivacyDialogOpen(false);
+                setLegalDocModal({ title: 'Terms of Use', url: './terms.html' });
+              }}
+            >
+              Terms of Use
+            </button>{' '}
+            (Bengaluru, Karnataka jurisdiction).
           </p>
+        </div>
+      </ModalDialog>
+
+      {/* In-App Legal Document Viewer Modal (100% offline-safe on iOS WKWebView & Android WebView) */}
+      <ModalDialog
+        open={legalDocModal !== null}
+        title={legalDocModal?.title ?? 'Legal'}
+        subtitle="Offline-capable legal document (India DPDP Act 2023 & GDPR)"
+        onClose={() => setLegalDocModal(null)}
+        footer={
+          <button type="button" className="btn-primary" onClick={() => setLegalDocModal(null)}>
+            Close
+          </button>
+        }
+      >
+        {legalDocModal ? (
+          <iframe
+            src={legalDocModal.url}
+            title={legalDocModal.title}
+            style={{
+              width: '100%',
+              height: '62vh',
+              border: '1px solid var(--color-border-subtle)',
+              borderRadius: 12,
+              background: '#FAFAF7',
+            }}
+          />
+        ) : null}
+      </ModalDialog>
+
+      {/* Peer-Reviewed Medical Sources & Clinical References Modal (Apple Guideline 1.4.1) */}
+      <ModalDialog
+        open={medicalSourcesOpen}
+        title="Medical Sources & Clinical References"
+        subtitle="Peer-reviewed obstetric & gynecological guidelines powering LunaCycle"
+        onClose={() => setMedicalSourcesOpen(false)}
+        footer={
+          <button type="button" className="btn-primary" onClick={() => setMedicalSourcesOpen(false)}>
+            Close
+          </button>
+        }
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: '0.84rem' }}>
+          <div className="reminder-item reminder-item--gentle">
+            <p className="reminder-body" style={{ margin: 0 }}>
+              <strong>Important Medical Disclaimer:</strong> {WELLNESS_MEDICAL_DISCLAIMER} {PHYSICIAN_CONSULTATION_NOTICE}
+            </p>
+          </div>
+
+          {MEDICAL_CITATIONS.map((cite) => (
+            <div key={cite.id} className="card-subtle" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-brand-primary)' }}>
+                {cite.topic}
+              </div>
+              <strong style={{ color: 'var(--color-text-primary)', fontSize: '0.86rem' }}>
+                {cite.organization} — {cite.title}
+              </strong>
+              <p style={{ margin: 0, color: 'var(--color-text-secondary)', lineHeight: 1.45 }}>
+                {cite.summary}
+              </p>
+              <a
+                href={cite.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  marginTop: 2,
+                  fontSize: '0.8rem',
+                  fontWeight: 600,
+                  color: 'var(--color-brand-primary)',
+                }}
+              >
+                <ExternalLink size={13} />
+                Read Official Source
+              </a>
+            </div>
+          ))}
         </div>
       </ModalDialog>
     </>

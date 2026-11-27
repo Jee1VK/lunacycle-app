@@ -1,10 +1,7 @@
 /**
- * PWA-Style Over-The-Air (OTA) Live Update Engine
- * Works seamlessly inside both installed browser PWAs and the native Capacitor Android APK.
- *
- * - Compares the running bundle's VITE_APP_VERSION against ./version.json (no-store)
- * - Triggers Service Worker update checks (registration.update())
- * - Activates waiting Service Worker via SKIP_WAITING and reloads cleanly on user confirmation
+ * PWA Over-The-Air (OTA) Live Update Engine (Web Browser PWA only).
+ * Native Android (.aab/.apk) and iOS builds run 100% locally from dist/ with zero
+ * startup network fetches (Apple Guideline 4.2 Airplane-Mode & Zero-IP-Leak compliance).
  */
 
 export const CURRENT_APP_VERSION: string = import.meta.env.VITE_APP_VERSION || '1.0.0-local';
@@ -29,7 +26,11 @@ export async function checkForOtaUpdate(): Promise<{
   latestVersion: string | null;
   offline?: boolean;
 }> {
-  // 1. Nudge Service Worker to inspect for a newer sw.js / asset bundle
+  // Native mobile store builds run strictly from local signed assets — never ping GitHub CDN.
+  if (isRunningInsideNativeApk()) {
+    return { updateAvailable: false, latestVersion: null };
+  }
+
   let swHasWaiting = false;
   if ('serviceWorker' in navigator) {
     try {
@@ -45,7 +46,6 @@ export async function checkForOtaUpdate(): Promise<{
     }
   }
 
-  // 2. Fetch live version.json bypassing HTTP & SW cache
   try {
     const res = await fetch(`./version.json?t=${Date.now()}`, {
       cache: 'no-store',
@@ -71,6 +71,8 @@ export async function checkForOtaUpdate(): Promise<{
 }
 
 export async function applyOtaUpdateNow(): Promise<void> {
+  if (isRunningInsideNativeApk()) return;
+
   if ('serviceWorker' in navigator) {
     try {
       const reg = await navigator.serviceWorker.getRegistration();
@@ -85,7 +87,6 @@ export async function applyOtaUpdateNow(): Promise<void> {
           window.setTimeout(resolve, 1200);
         });
       }
-      // Clear stale caches so reload grabs the freshest OTA bundle
       if ('caches' in window) {
         const keys = await caches.keys();
         await Promise.all(keys.map((k) => caches.delete(k)));
